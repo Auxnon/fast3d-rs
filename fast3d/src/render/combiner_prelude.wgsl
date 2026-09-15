@@ -365,9 +365,36 @@ fn tile_taps(tile: TileSampling, base: vec2<i32>) -> TileTaps {
     return TileTaps(vec2<i32>(tap00), vec2<i32>(tap10), vec2<i32>(tap01), vec2<i32>(tap11));
 }
 
-fn tile_filter(texture: texture_2d<f32>, tile: TileSampling, coordinate: vec2<f32>) -> vec4<f32> {
+fn replacement_axis(tap: i32, mode: u32, mask: u32, extent: u32, scale: u32) -> i32 {
+    var addressed = tap;
+    if (mode & 2u) != 0u || mask == 0u {
+        addressed = clamp(addressed, 0, i32(extent * scale) - 1);
+    }
+    if mask != 0u {
+        let period = i32((1u << mask) * scale);
+        let cycle = select(period, period * 2, (mode & 1u) != 0u);
+        var phase = addressed % cycle;
+        if phase < 0 { phase += cycle; }
+        addressed = select(cycle - 1 - phase, phase, phase < period);
+    }
+    return addressed;
+}
+
+fn replacement_taps(tile: TileSampling, base: vec2<i32>) -> TileTaps {
+    let scale = tile.palette.z;
+    let x0 = replacement_axis(base.x, tile.modes.x, tile.shift_mask.z, tile.modes.z, scale);
+    let x1 = replacement_axis(base.x + 1, tile.modes.x, tile.shift_mask.z, tile.modes.z, scale);
+    let y0 = replacement_axis(base.y, tile.modes.y, tile.shift_mask.w, tile.modes.w, scale);
+    let y1 = replacement_axis(base.y + 1, tile.modes.y, tile.shift_mask.w, tile.modes.w, scale);
+    return TileTaps(vec2<i32>(x0, y0), vec2<i32>(x1, y0), vec2<i32>(x0, y1), vec2<i32>(x1, y1));
+}
+
+fn tile_filter(texture: texture_2d<f32>, tile: TileSampling, native_coordinate: vec2<f32>) -> vec4<f32> {
+    var coordinate = native_coordinate;
+    if tile.palette.z > 1u { coordinate *= f32(tile.palette.z); }
     let base = vec2<i32>(floor(coordinate));
-    let taps = tile_taps(tile, base);
+    var taps = tile_taps(tile, base);
+    if tile.palette.z > 1u { taps = replacement_taps(tile, base); }
     let c00 = textureLoad(texture, taps.tap00, 0);
     let c10 = textureLoad(texture, taps.tap10, 0);
     let c01 = textureLoad(texture, taps.tap01, 0);

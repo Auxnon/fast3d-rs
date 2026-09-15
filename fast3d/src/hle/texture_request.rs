@@ -282,13 +282,17 @@ impl EncodedTextureRequest {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_test_parts(input: EncodedInput, recipe: DecodeRecipe) -> Self {
+    pub(crate) fn from_owned_parts(input: EncodedInput, recipe: DecodeRecipe) -> Self {
         Self {
             input,
             recipe,
             identity: OnceLock::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_parts(input: EncodedInput, recipe: DecodeRecipe) -> Self {
+        Self::from_owned_parts(input, recipe)
     }
 
     #[cfg(test)]

@@ -1,6 +1,6 @@
 # Texture decode and residency
 
-Supported HLE textures are decoded by compute during renderer preparation. The
+Native HLE textures are decoded by compute during renderer preparation. The
 interpreter still performs TMEM loads, validates formats and rejected-source
 provenance, and owns the encoded bytes at each draw. A later load cannot change
 an earlier request. There is no production CPU texture executor or executor
@@ -59,7 +59,9 @@ its device and renderer. No device handles transfer between epochs.
 Synthetic or debug RGBA sources still upload their supplied pixels. The existing
 bounded framebuffer-view path uses ordered framebuffer descriptors, not TMEM
 identity. GPU-source texture loads remain rejected under the existing framebuffer
-contract. This change adds no replacement provider.
+contract. Optional [replacement registrations](texture-replacements.md) supply
+owned RGBA8 images for exact targets before native resolution. Native residency
+keeps Fast3dV1 identity; replacements are disabled by default.
 
 Each request memoizes its identity on first use. Separately prepared requests
 compute their own keys, including equal-byte reloads. Physical selection marks

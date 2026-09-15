@@ -661,6 +661,14 @@ fn assert_work_with_input(
     padding_bytes: u64,
 ) {
     for (name, expected) in [
+        ("replacement.provider_calls", 0),
+        ("replacement.v5_admission_checks", 0),
+        ("replacement.v5_hashes", 0),
+        ("replacement.v5_bytes_hashed", 0),
+        ("replacement.decision_hits", 0),
+        ("replacement.decision_misses", 0),
+        ("replacement.upload_calls", 0),
+        ("replacement.upload_bytes", 0),
         ("tmem.misses", misses),
         ("tmem.hits", hits),
         ("tmem.decode_dispatches", misses),
@@ -1076,3 +1084,6 @@ gpu_test!(
     lookup_and_linear_cold_warm_changed_input_counts_and_pixels,
     lookup_and_linear_residency
 );
+
+#[path = "texture_residency/replacements.rs"]
+mod replacements;
