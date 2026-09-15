@@ -117,6 +117,8 @@ pub(super) fn alias(
     }
     stream.extend_from_slice(&(recipe.output[0] as u16).to_le_bytes());
     stream.extend_from_slice(&(recipe.output[1] as u16).to_le_bytes());
+    // rt64 hashes OtherMode::textLUT(), which is `H & (3 << G_MDSFT_TEXTLUT)` and keeps the
+    // field in place, so the stream carries the mode shifted by 14 rather than 0/2/3.
     stream.extend_from_slice(&(u32::from(recipe.tlut) << 14).to_le_bytes());
     stream.extend_from_slice(&recipe.line.to_le_bytes());
     stream.extend_from_slice(&[recipe.siz, recipe.fmt]);
