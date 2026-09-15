@@ -57,16 +57,20 @@ with the provider revision and reason. Pending and no-match outcomes have their
 own counters. All outcomes, including aliases, are cached until input changes,
 eviction or the next installed provider snapshot.
 
-Decision reuse checks the exact recipe, full owned encoded input, and v5
-eligibility. Checking only the native witness would be insufficient: v5 includes
-six additional bytes of every used palette slot. The decision retains the
-resolved target witness and recipe. Native decoded residency always uses its
-original Fast3dV1 key and witness, including when replacements are enabled.
+Decision reuse checks the exact recipe and v5 eligibility. Equal owned inputs
+reuse the decision directly. If input bytes differ, reuse requires an equal exact
+native target and, when the lookup reached v5, equal bytes in every retained v5
+input range. Those ranges include all eight bytes of every used palette slot.
+Unrelated TMEM writes do not force another provider lookup or upload. The native
+target check preserves native-first precedence even for cached v5 misses. Native
+decoded residency always uses its original Fast3dV1 key and witness, including
+when replacements are enabled.
 
 The decision cache admits at most 256 entries, 8 MiB of charged CPU payload and
-64 MiB of GPU payload. CPU charges include encoded input, witness and retained
-RGBA bytes per entry; sharing may make the actual allocation smaller. Because
-RGBA bytes also count against the CPU cap, that cap can bind before the GPU cap.
+64 MiB of GPU payload. CPU charges include encoded input, native witness, v5
+range storage and retained RGBA bytes per entry; sharing may make the actual
+allocation smaller. Because RGBA bytes also count against the CPU cap, that cap
+can bind before the GPU cap.
 Oversized entries bypass the cache. Eviction drops cache ownership; bound and
 submitted images remain alive. Queue completion releases submission ownership.
 These caps do not limit caller-owned registration snapshots or in-flight work.

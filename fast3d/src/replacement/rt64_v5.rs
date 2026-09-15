@@ -81,20 +81,11 @@ fn spans(recipe: &DecodeRecipe) -> Option<Vec<Range<usize>>> {
     Some(spans)
 }
 
-pub(super) fn alias(
-    recipe: &DecodeRecipe,
-    input: &EncodedInput,
-    profiling: &Recorder,
-) -> Option<ReplacementTarget> {
-    let EncodedInput::Tmem(bank) = input else {
-        return None;
-    };
-    let spans = spans(recipe)?;
-    let mut stream = Vec::new();
+pub(crate) fn input_spans(recipe: &DecodeRecipe, bank: &[u8; 4096]) -> Option<Vec<Range<usize>>> {
+    let mut spans = spans(recipe)?;
     let mut indices = [0u64; 4];
-    for span in spans {
-        let bytes = &bank[span];
-        stream.extend_from_slice(bytes);
+    for span in &spans {
+        let bytes = &bank[span.clone()];
         if recipe.fmt == 2 {
             for &byte in bytes {
                 if recipe.siz == 0 {
@@ -110,10 +101,25 @@ pub(super) fn alias(
         for (word, mut bits) in indices.into_iter().enumerate() {
             while bits != 0 {
                 let index = word * 64 + bits.trailing_zeros() as usize;
-                stream.extend_from_slice(&bank[palette + index * 8..palette + index * 8 + 8]);
+                spans.push(palette + index * 8..palette + index * 8 + 8);
                 bits &= bits - 1;
             }
         }
+    }
+    Some(spans)
+}
+
+pub(super) fn alias(
+    recipe: &DecodeRecipe,
+    input: &EncodedInput,
+    profiling: &Recorder,
+) -> Option<ReplacementTarget> {
+    let EncodedInput::Tmem(bank) = input else {
+        return None;
+    };
+    let mut stream = Vec::new();
+    for span in input_spans(recipe, bank)? {
+        stream.extend_from_slice(&bank[span]);
     }
     stream.extend_from_slice(&(recipe.output[0] as u16).to_le_bytes());
     stream.extend_from_slice(&(recipe.output[1] as u16).to_le_bytes());

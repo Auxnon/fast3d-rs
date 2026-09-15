@@ -3,7 +3,7 @@
 pub use crate::hle::texture_request::{DecodeRecipe, EncodedInput, Representation};
 use crate::{hle::texture_request::EncodedTextureRequest, profiling::Recorder};
 use std::{collections::HashMap, sync::Arc};
-mod rt64_v5;
+pub(crate) mod rt64_v5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureKeyScheme {

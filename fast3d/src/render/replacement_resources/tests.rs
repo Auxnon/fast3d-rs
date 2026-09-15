@@ -190,3 +190,190 @@ fn raw_tlut_on_non_ci_blocks_alias_even_with_a_warm_allowed_decision() {
     assert_eq!(counts["replacement.provider_calls"], 1);
     assert_eq!(counts.get("replacement.v5_hashes"), None);
 }
+
+#[test]
+fn decisions_ignore_unreferenced_bytes_but_track_used_palette_slots() {
+    let a = request(1);
+    let mut bank = [1; 4096];
+    bank[1000] = 93;
+    bank[2066] = 27;
+    let unrelated = EncodedTextureRequest::from_owned_parts(
+        EncodedInput::Tmem(Arc::new(bank)),
+        a.recipe().clone(),
+    );
+    bank[2058] = 99;
+    let used_slot = EncodedTextureRequest::from_owned_parts(
+        EncodedInput::Tmem(Arc::new(bank)),
+        a.recipe().clone(),
+    );
+    for scheme in [TextureKeyScheme::Fast3dV1, TextureKeyScheme::Rt64V5] {
+        for status in [ready(71), ReplacementStatus::Pending] {
+            let mut cache = Replacements::new(provider(&a, scheme, status.clone()));
+            let stats = Recorder::new(Mode::Counters);
+            let expected = matches!(status, ReplacementStatus::Ready(_)).then_some((71, 1));
+            assert_eq!(resolve(&mut cache, &a, &stats), expected);
+            stats.drain();
+            assert_eq!(resolve(&mut cache, &unrelated, &stats), expected);
+            let counts = stats.drain().counters;
+            assert_eq!(counts["replacement.decision_hits"], 1);
+            assert!(!counts.contains_key("replacement.provider_calls"));
+            assert!(!counts.contains_key("replacement.v5_hashes"));
+            assert_eq!(
+                resolve(&mut cache, &used_slot, &stats),
+                if scheme == TextureKeyScheme::Fast3dV1 {
+                    expected
+                } else {
+                    None
+                }
+            );
+            let counts = stats.drain().counters;
+            assert_eq!(
+                counts.get("replacement.v5_hashes").copied().unwrap_or(0),
+                u64::from(scheme == TextureKeyScheme::Rt64V5)
+            );
+        }
+    }
+    let stats = Recorder::new(Mode::Counters);
+    let mut cache = Replacements::<u8>::new(Arc::new(ReplacementProvider::new(1, [])));
+    assert_eq!(resolve(&mut cache, &a, &stats), None);
+    stats.drain();
+    assert_eq!(resolve(&mut cache, &unrelated, &stats), None);
+    assert_eq!(stats.drain().counters["replacement.decision_hits"], 1);
+}
+
+#[test]
+fn changed_input_checks_native_priority_after_a_cached_alias() {
+    let a = request(1);
+    let b = request(2);
+    let stats = Recorder::new(Mode::Counters);
+    let provider = Arc::new(ReplacementProvider::new(
+        1,
+        [
+            ReplacementRegistration {
+                target: ReplacementTarget::for_request(&a, TextureKeyScheme::Rt64V5, &stats)
+                    .unwrap(),
+                status: ready(71),
+            },
+            ReplacementRegistration {
+                target: ReplacementTarget::for_request(&b, TextureKeyScheme::Fast3dV1, &stats)
+                    .unwrap(),
+                status: ready(99),
+            },
+        ],
+    ));
+    let mut cache = Replacements::new(provider);
+    assert_eq!(resolve(&mut cache, &a, &stats), Some((71, 1)));
+    stats.drain();
+    assert_eq!(resolve(&mut cache, &b, &stats), Some((99, 1)));
+    let counts = stats.drain().counters;
+    assert_eq!(counts["replacement.provider_calls"], 1);
+    assert!(!counts.contains_key("replacement.v5_hashes"));
+    assert_eq!(resolve(&mut cache, &a, &stats), Some((71, 1)));
+    assert_eq!(resolve(&mut cache, &b, &stats), Some((99, 1)));
+    assert_eq!(stats.drain().counters["replacement.decision_hits"], 2);
+}
+
+#[cfg(feature = "capture")]
+#[test]
+fn display_list_reloads_reuse_replacement_decisions() {
+    use crate::{
+        capture::{Fixture, ReplayHardware},
+        profiling::CpuInterpreter,
+        Hardware,
+    };
+
+    for (name, bytes, expected_requests) in [
+        (
+            "layouts",
+            include_bytes!("../../../tests/fixtures/tmem-layouts.f3dcap").as_slice(),
+            18,
+        ),
+        (
+            "roles",
+            include_bytes!("../../../tests/fixtures/tmem-roles-lifetime.f3dcap").as_slice(),
+            9,
+        ),
+        (
+            "palette",
+            include_bytes!("../../../tests/fixtures/tmem-tlut-mutation.f3dcap").as_slice(),
+            5,
+        ),
+    ] {
+        let fixture = Fixture::from_bytes(bytes).unwrap();
+        let mut interpreter = CpuInterpreter::default();
+        interpreter.recorder = Recorder::new(Mode::Trace);
+        let mut frames = Vec::new();
+        for _ in 0..3 {
+            for task in &fixture.tasks {
+                let hardware = ReplayHardware::new(task, None).unwrap();
+                let (_, diagnostics) = interpreter.process(
+                    hardware.rdram(),
+                    task.entry,
+                    task.microcode,
+                    task.data_format,
+                );
+                hardware.check().unwrap();
+                assert!(diagnostics.is_empty());
+            }
+            frames.push(
+                interpreter
+                    .recorder
+                    .drain()
+                    .requests
+                    .into_iter()
+                    .map(|request| EncodedTextureRequest::from_diagnostic(&request).unwrap())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        for scheme in [TextureKeyScheme::Fast3dV1, TextureKeyScheme::Rt64V5] {
+            let provider = Arc::new(ReplacementProvider::new(
+                1,
+                frames[0].iter().map(|request| ReplacementRegistration {
+                    target: ReplacementTarget::for_request(request, scheme, &Recorder::default())
+                        .unwrap(),
+                    status: ReplacementStatus::Ready(ReplacementImage {
+                        extent: request.recipe().output,
+                        pixels: vec![
+                            71;
+                            (request.recipe().output[0] * request.recipe().output[1] * 4)
+                                as usize
+                        ]
+                        .into(),
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                    }),
+                }),
+            ));
+            let mut cache = Replacements::new(provider);
+            let stats = Recorder::new(Mode::Counters);
+            for (frame, requests) in frames.iter().enumerate() {
+                assert_eq!(requests.len(), expected_requests);
+                for request in requests {
+                    assert_eq!(resolve(&mut cache, request, &stats), Some((71, 1)));
+                }
+                let counts = stats.drain().counters;
+                eprintln!("{name} {scheme:?} frame {frame}: {counts:?}");
+                if frame > 0 {
+                    assert_eq!(
+                        counts["replacement.decision_hits"],
+                        expected_requests as u64
+                    );
+                    for name in [
+                        "replacement.provider_calls",
+                        "replacement.v5_admission_checks",
+                        "replacement.v5_hashes",
+                        "replacement.v5_bytes_hashed",
+                        "replacement.upload_calls",
+                        "replacement.upload_bytes",
+                        "replacement.decision_misses",
+                    ] {
+                        assert_eq!(
+                            counts.get(name).copied().unwrap_or(0),
+                            0,
+                            "{scheme:?} frame {frame}: {name}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

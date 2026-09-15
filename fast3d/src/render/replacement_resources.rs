@@ -6,13 +6,14 @@ use crate::{
     profiling::Recorder,
     replacement::{
         DecodeRecipe, EncodedInput, ReplacementImage, ReplacementProvider, ReplacementStatus,
-        ReplacementTarget,
+        ReplacementTarget, TextureKeyScheme,
     },
 };
 
 struct Decision<T> {
     v5_allowed: bool,
-    target: ReplacementTarget,
+    native: ReplacementTarget,
+    alias_spans: Vec<std::ops::Range<usize>>,
     recipe: DecodeRecipe,
     input: EncodedInput,
     image: Option<(T, u32)>,
@@ -47,15 +48,24 @@ impl<T: Clone> Replacements<T> {
         profiling: &Recorder,
         upload: impl FnOnce(&ReplacementImage) -> T,
     ) -> Option<(T, u32)> {
-        let existing = self.decisions.iter().position(|decision| {
-            decision.v5_allowed == v5_allowed
-                && decision.target.extent() == request.recipe().output
-                && decision.recipe == *request.recipe()
-                && input_equal(&decision.input, request.input(), profiling)
-        });
-        if let Some(index) = existing {
+        let existing = self
+            .decisions
+            .iter()
+            .enumerate()
+            .find_map(|(index, decision)| {
+                if decision.v5_allowed != v5_allowed || decision.recipe != *request.recipe() {
+                    return None;
+                }
+                let input_matches = input_equal(&decision.input, request.input(), profiling);
+                (input_matches || decision.matches_dependencies(request, profiling))
+                    .then_some((index, !input_matches))
+            });
+        if let Some((index, refresh_input)) = existing {
             profiling.count("replacement.decision_hits", 1);
-            let decision = self.decisions.remove(index).unwrap();
+            let mut decision = self.decisions.remove(index).unwrap();
+            if refresh_input {
+                decision.input = request.input().clone();
+            }
             let image = decision.image.clone();
             self.decisions.push_back(decision);
             return image;
@@ -94,7 +104,20 @@ impl<T: Clone> Replacements<T> {
             EncodedInput::Tmem(_) => 4096,
             EncodedInput::LinearCompat { bytes, .. } => 4096 + bytes.len(),
         };
-        let cpu_bytes = input_bytes + target.witness().len() + gpu_bytes as usize;
+        let alias_spans = if target.key().scheme == TextureKeyScheme::Rt64V5 {
+            let EncodedInput::Tmem(bank) = request.input() else {
+                unreachable!()
+            };
+            crate::replacement::rt64_v5::input_spans(request.recipe(), bank).unwrap()
+        } else {
+            Vec::new()
+        };
+        let native =
+            ReplacementTarget::for_request(request, TextureKeyScheme::Fast3dV1, profiling).unwrap();
+        let cpu_bytes = input_bytes
+            + native.witness().len()
+            + alias_spans.capacity() * std::mem::size_of::<std::ops::Range<usize>>()
+            + gpu_bytes as usize;
         if self.entry_limit != 0 && cpu_bytes <= 8 * 1024 * 1024 && gpu_bytes <= 64 * 1024 * 1024 {
             while self.decisions.len() >= self.entry_limit
                 || self.cpu_bytes + cpu_bytes > 8 * 1024 * 1024
@@ -107,7 +130,8 @@ impl<T: Clone> Replacements<T> {
             }
             self.decisions.push_back(Decision {
                 v5_allowed,
-                target,
+                native,
+                alias_spans,
                 recipe: request.recipe().clone(),
                 input: request.input().clone(),
                 image: image.clone(),
@@ -123,6 +147,32 @@ impl<T: Clone> Replacements<T> {
         profiling.gauge("replacement.cached_cpu_bytes", self.cpu_bytes as u64);
         profiling.gauge("replacement.cached_gpu_bytes", self.gpu_bytes);
         image
+    }
+}
+
+impl<T> Decision<T> {
+    fn matches_dependencies(&self, request: &EncodedTextureRequest, profiling: &Recorder) -> bool {
+        let native =
+            ReplacementTarget::for_request(request, TextureKeyScheme::Fast3dV1, profiling).unwrap();
+        profiling.count("replacement.witness_comparisons", 1);
+        profiling.count(
+            "replacement.bytes_compared",
+            self.native.witness().len() as u64,
+        );
+        if self.native != native {
+            return false;
+        }
+        if self.alias_spans.is_empty() {
+            return true;
+        }
+        let (EncodedInput::Tmem(a), EncodedInput::Tmem(b)) = (&self.input, request.input()) else {
+            return false;
+        };
+        // A v5 decision also depends on all eight bytes of each used palette slot.
+        self.alias_spans.iter().all(|span| {
+            profiling.count("replacement.input_bytes_compared", span.len() as u64);
+            a[span.clone()] == b[span.clone()]
+        })
     }
 }
 

@@ -310,9 +310,9 @@ async fn identity_roles_and_aliases() {
         let counts = harness.recorder.drain();
         #[cfg(not(target_arch = "wasm32"))]
         export_snapshot(&format!("{id}-warm"), &counts);
-        assert_eq!(count(&counts, "replacement.provider_calls"), 0);
-        assert_eq!(count(&counts, "replacement.v5_hashes"), 0);
-        assert_eq!(count(&counts, "replacement.upload_calls"), 0);
+        assert_eq!(count(&counts, "replacement.provider_calls"), 0, "{id}");
+        assert_eq!(count(&counts, "replacement.v5_hashes"), 0, "{id}");
+        assert_eq!(count(&counts, "replacement.upload_calls"), 0, "{id}");
     }
     for recipe in RecipeCase::ALL {
         let fixture = recipe_fixture(recipe, false);
@@ -428,13 +428,48 @@ fn scaled_expected(filter: u32, mirror: bool) -> Vec<u8> {
                 let value = if filter == 0 {
                     sample(0, 0, c)
                 } else {
-                    (sample(0, 0, c) * 2 + sample(1, 0, c) + sample(0, 1, c)) / 4
+                    // Pixel centres give 2 * (1/8 + (i + 1/2)/2) = i + 3/4.
+                    (sample(1, 1, c) * 2 + sample(1, 0, c) + sample(0, 1, c)) / 4
                 };
                 expected[((24 + y) * 320 + 16 + x) * 4 + c] = value as u8;
             }
         }
     }
     expected
+}
+
+#[test]
+fn replacement_scaled_expectations_include_pixel_centers() {
+    for (mirror, samples) in [
+        (
+            false,
+            vec![
+                (0, 0, [37, 48, 23, 69]),
+                (5, 0, [156, 48, 74, 137]),
+                (0, 5, [37, 184, 57, 120]),
+                (5, 5, [156, 184, 108, 188]),
+            ],
+        ),
+        (
+            true,
+            vec![
+                (0, 0, [37, 48, 23, 69]),
+                (3, 3, [100, 120, 68, 132]),
+                (4, 0, [79, 48, 41, 93]),
+                (5, 5, [51, 64, 33, 83]),
+            ],
+        ),
+    ] {
+        let pixels = scaled_expected(2, mirror);
+        for (x, y, expected) in samples {
+            let offset = ((24 + y) * 320 + 16 + x) * 4;
+            assert_eq!(
+                &pixels[offset..offset + 4],
+                &expected,
+                "mirror={mirror}, ({x},{y})"
+            );
+        }
+    }
 }
 
 async fn scale_mapping() {
@@ -513,6 +548,12 @@ fn replacement_fixture_targets_are_proved_before_rendering() {
         let fixture = scaled_fixture(filter, mirror);
         let request = requests(&fixture).remove(0);
         assert_eq!(request.extent, [3, 3]);
+        assert_eq!(
+            request
+                .decode_prepared(&request.prepare().unwrap())
+                .unwrap(),
+            vec![61; 36]
+        );
         assert_eq!(request.representation, Representation::Linear);
         assert!(target(&request, TextureKeyScheme::Fast3dV1).is_ok());
         assert!(target(&request, TextureKeyScheme::Rt64V5).is_err());
