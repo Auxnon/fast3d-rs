@@ -587,128 +587,20 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                 let dsdx = (cmd2.w1 >> 16) as i16;
                 let dtdy = cmd2.w1 as i16;
                 let flip = op == crate::hle::consts::G_TEXRECTFLIP;
-                let copy_mode = ((rdp.other_mode_h >> 20) & 3) == crate::hle::consts::G_CYC_COPY;
                 let rect = crate::hle::TexRectBounds { ulx, uly, lrx, lry };
-
-                if !rdp.color_image_set {
-                    // A 2D op needs a framebuffer target; one before the first CIMG is malformed → drop.
-                    dropped_runs += 1;
-                    diags.push(Diagnostic {
-                        at: pc,
-                        kind: DiagKind::DrawBeforeCimg,
-                    });
-                    pc = next_pc;
-                    break 'dispatch;
-                }
-
-                let tile_desc = &rdp.tiles[usize::from(tile)];
-                let layout = crate::render::framebuffers::ImageLayout {
-                    width: u32::from(rdp.tex_image.2) + 1,
-                    fmt: rdp.tex_image.0,
-                    siz: rdp.tex_image.1,
-                };
-                let (uses_texture, uses_second_texture) =
-                    crate::hle::combiner::physical_texture_uses(
-                        &crate::hle::combiner::decode_combine(rdp.combine_l, rdp.combine_h),
-                        (rdp.other_mode_h >> 20) & 3,
-                    );
-                let load_free = !rdp.tmem_bank.tile_has_load(tile_desc);
-                let source = if uses_texture && load_free {
-                    rec.framebuffers.targets.source(
-                        rdp.tex_image.3,
-                        rdp.color_image.addr,
-                        layout,
-                        u32::from(tile_desc.height.max(1)),
-                    )
-                } else {
-                    Ok(None)
-                };
-                let fb_source = match source {
-                    Ok(Some(source)) if uses_second_texture => {
-                        diags.push(Diagnostic {
-                            at: pc,
-                            kind: DiagKind::UnsupportedFramebufferAccess {
-                                address: source.address,
-                                reason: crate::FramebufferAccess::TextureMode,
-                            },
-                        });
-                        dropped_runs += 1;
-                        pc = next_pc;
-                        break 'dispatch;
-                    }
-                    Ok(Some(source))
-                        if (tile_desc.fmt, tile_desc.siz) != (layout.fmt, layout.siz)
-                            || u32::from(tile_desc.width) > layout.width =>
-                    {
-                        diags.push(Diagnostic {
-                            at: pc,
-                            kind: DiagKind::UnsupportedFramebufferAccess {
-                                address: source.address,
-                                reason: crate::diag::FramebufferAccess::Reinterpretation,
-                            },
-                        });
-                        dropped_runs += 1;
-                        pc = next_pc;
-                        break 'dispatch;
-                    }
-                    Ok(source) => source.map(|source| source.address),
-                    Err(kind) => {
-                        diags.push(Diagnostic { at: pc, kind });
-                        dropped_runs += 1;
-                        pc = next_pc;
-                        break 'dispatch;
-                    }
-                };
-                let Some((material_index, render_mode_index)) = crate::hle::rsp::snapshot_rect_run(
-                    &rsp, &rdp, tile, &mut diags, &mut scene, pc,
-                ) else {
-                    dropped_runs += 1;
-                    pc = next_pc;
-                    break 'dispatch;
-                };
-                crate::hle::rsp::ensure_pair_open(&mut scene, &mut rdp, &mut rec);
-                crate::hle::rsp::record_scissor_if_changed(&mut scene, &rdp, &mut rec);
-
-                let cur = rec.cur_pair;
-
-                scene.framebuffer_pairs[cur]
-                    .ops
-                    .push(crate::hle::rsp::SceneOp::TexRect {
-                        rect,
-                        tile,
-                        uls,
-                        ult,
-                        dsdx,
-                        dtdy,
-                        flip,
-                        copy_mode,
-                        material_index,
-                        render_mode_index,
-                        fog_color: rdp.fog_color,
-                        prim_depth: rdp.prim_depth,
-                        fb_source,
-                    });
-                scene.draw_origins.push(crate::scene::DrawOrigin {
+                let emission = record_texrect(
+                    &mut rsp,
+                    &mut rdp,
+                    &mut scene,
+                    &mut rec,
+                    &mut diags,
+                    &mut dropped_runs,
                     pc,
-                    depth_image: rdp.depth_image,
-                    scissor: rdp.scissor,
-                    indices: 0..0,
-                    rectangle: Some((cur, scene.framebuffer_pairs[cur].ops.len() - 1)),
-                });
-                if let Some(observed) = &mut observed {
-                    observed.emission = Some(Emission::TexRect {
-                        target: framebuffer_target(&scene, cur),
-                        op_index: (scene.framebuffer_pairs[cur].ops.len() - 1) as u32,
-                        rect,
-                        tile,
-                        uls,
-                        ult,
-                        dsdx,
-                        dtdy,
-                        flip,
-                        copy_mode,
-                        fb_source,
-                    });
+                    rect,
+                    (tile, uls, ult, dsdx, dtdy, flip),
+                );
+                if let (Some(observed), Some(emission)) = (&mut observed, emission) {
+                    observed.emission = Some(emission);
                 }
                 pc = next_pc;
                 break 'dispatch;
@@ -749,52 +641,17 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     next_pc = walk_try!(Command, checked_span(next_pc, stride));
                 }
 
-                if !rdp.color_image_set {
-                    dropped_runs += 1;
-                    diags.push(Diagnostic {
-                        at: pc,
-                        kind: DiagKind::DrawBeforeCimg,
-                    });
-                    pc = next_pc;
-                    break 'dispatch;
-                }
-
-                if crate::hle::rsp::validate_depth_alias(&rdp, true, &mut diags, pc).is_none()
-                    || !crate::hle::combiner::validate_fill_inputs(&rdp, &mut diags, pc)
-                {
-                    dropped_runs += 1;
-                    pc = next_pc;
-                    break 'dispatch;
-                }
-
-                crate::hle::rsp::ensure_pair_open(&mut scene, &mut rdp, &mut rec);
-                crate::hle::rsp::record_scissor_if_changed(&mut scene, &rdp, &mut rec);
-                let color_raw = rdp.fill_color_raw;
-                scene.framebuffer_pairs[rec.cur_pair].ops.push(
-                    crate::hle::rsp::SceneOp::FillRect {
-                        rect,
-                        color_raw,
-                        convert: rdp.convert,
-                        key: rdp.key,
-                    },
-                );
-                scene.draw_origins.push(crate::scene::DrawOrigin {
+                let emission = record_fillrect(
+                    &mut rdp,
+                    &mut scene,
+                    &mut rec,
+                    &mut diags,
+                    &mut dropped_runs,
                     pc,
-                    depth_image: rdp.depth_image,
-                    scissor: rdp.scissor,
-                    indices: 0..0,
-                    rectangle: Some((
-                        rec.cur_pair,
-                        scene.framebuffer_pairs[rec.cur_pair].ops.len() - 1,
-                    )),
-                });
-                if let Some(observed) = &mut observed {
-                    observed.emission = Some(Emission::FillRect {
-                        target: framebuffer_target(&scene, rec.cur_pair),
-                        op_index: (scene.framebuffer_pairs[rec.cur_pair].ops.len() - 1) as u32,
-                        rect,
-                        color_raw,
-                    });
+                    rect,
+                );
+                if let (Some(observed), Some(emission)) = (&mut observed, emission) {
+                    observed.emission = Some(emission);
                 }
                 pc = next_pc;
                 break 'dispatch;
@@ -975,6 +832,192 @@ pub fn interpret_rdram(bytes: &[u8], entry_addr: u32) -> InterpResult {
         crate::hle::mem::GbiDataFormat::Fixed,
         None,
     )
+}
+
+/// Records a texture rectangle (G_TEXRECT/G_TEXRECTFLIP or the extended
+/// gEXTextureRectangle). Returns the observer emission, or `None` when it's dropped.
+#[allow(clippy::too_many_arguments)]
+fn record_texrect(
+    rsp: &mut crate::hle::rsp::Rsp,
+    rdp: &mut crate::hle::rdp::Rdp,
+    scene: &mut Scene,
+    rec: &mut crate::hle::rsp::PairRec,
+    diags: &mut Vec<Diagnostic>,
+    dropped_runs: &mut u32,
+    pc: u64,
+    rect: crate::hle::TexRectBounds,
+    (tile, uls, ult, dsdx, dtdy, flip): (u8, i16, i16, i16, i16, bool),
+) -> Option<Emission<'static>> {
+    let copy_mode = ((rdp.other_mode_h >> 20) & 3) == crate::hle::consts::G_CYC_COPY;
+
+    if !rdp.color_image_set {
+        // A 2D op needs a framebuffer target; one before the first CIMG is malformed → drop.
+        *dropped_runs += 1;
+        diags.push(Diagnostic {
+            at: pc,
+            kind: DiagKind::DrawBeforeCimg,
+        });
+        return None;
+    }
+
+    let tile_desc = &rdp.tiles[usize::from(tile)];
+    let layout = crate::render::framebuffers::ImageLayout {
+        width: u32::from(rdp.tex_image.2) + 1,
+        fmt: rdp.tex_image.0,
+        siz: rdp.tex_image.1,
+    };
+    let (uses_texture, uses_second_texture) = crate::hle::combiner::physical_texture_uses(
+        &crate::hle::combiner::decode_combine(rdp.combine_l, rdp.combine_h),
+        (rdp.other_mode_h >> 20) & 3,
+    );
+    let load_free = !rdp.tmem_bank.tile_has_load(tile_desc);
+    let source = if uses_texture && load_free {
+        rec.framebuffers.targets.source(
+            rdp.tex_image.3,
+            rdp.color_image.addr,
+            layout,
+            u32::from(tile_desc.height.max(1)),
+        )
+    } else {
+        Ok(None)
+    };
+    let fb_source = match source {
+        Ok(Some(source)) if uses_second_texture => {
+            diags.push(Diagnostic {
+                at: pc,
+                kind: DiagKind::UnsupportedFramebufferAccess {
+                    address: source.address,
+                    reason: crate::FramebufferAccess::TextureMode,
+                },
+            });
+            *dropped_runs += 1;
+            return None;
+        }
+        Ok(Some(source))
+            if (tile_desc.fmt, tile_desc.siz) != (layout.fmt, layout.siz)
+                || u32::from(tile_desc.width) > layout.width =>
+        {
+            diags.push(Diagnostic {
+                at: pc,
+                kind: DiagKind::UnsupportedFramebufferAccess {
+                    address: source.address,
+                    reason: crate::diag::FramebufferAccess::Reinterpretation,
+                },
+            });
+            *dropped_runs += 1;
+            return None;
+        }
+        Ok(source) => source.map(|source| source.address),
+        Err(kind) => {
+            diags.push(Diagnostic { at: pc, kind });
+            *dropped_runs += 1;
+            return None;
+        }
+    };
+    let Some((material_index, render_mode_index)) =
+        crate::hle::rsp::snapshot_rect_run(rsp, rdp, tile, diags, scene, pc)
+    else {
+        *dropped_runs += 1;
+        return None;
+    };
+    crate::hle::rsp::ensure_pair_open(scene, rdp, rec);
+    crate::hle::rsp::record_scissor_if_changed(scene, rdp, rec);
+
+    let cur = rec.cur_pair;
+
+    scene.framebuffer_pairs[cur]
+        .ops
+        .push(crate::hle::rsp::SceneOp::TexRect {
+            rect,
+            tile,
+            uls,
+            ult,
+            dsdx,
+            dtdy,
+            flip,
+            copy_mode,
+            material_index,
+            render_mode_index,
+            fog_color: rdp.fog_color,
+            prim_depth: rdp.prim_depth,
+            fb_source,
+        });
+    scene.draw_origins.push(crate::scene::DrawOrigin {
+        pc,
+        depth_image: rdp.depth_image,
+        scissor: rdp.scissor,
+        indices: 0..0,
+        rectangle: Some((cur, scene.framebuffer_pairs[cur].ops.len() - 1)),
+    });
+    Some(Emission::TexRect {
+        target: framebuffer_target(scene, cur),
+        op_index: (scene.framebuffer_pairs[cur].ops.len() - 1) as u32,
+        rect,
+        tile,
+        uls,
+        ult,
+        dsdx,
+        dtdy,
+        flip,
+        copy_mode,
+        fb_source,
+    })
+}
+
+/// Records a fill rectangle (G_FILLRECT or the extended gEXFillRectangle). Returns the
+/// observer emission, or `None` when it's dropped.
+fn record_fillrect(
+    rdp: &mut crate::hle::rdp::Rdp,
+    scene: &mut Scene,
+    rec: &mut crate::hle::rsp::PairRec,
+    diags: &mut Vec<Diagnostic>,
+    dropped_runs: &mut u32,
+    pc: u64,
+    rect: crate::hle::rsp::Rect,
+) -> Option<Emission<'static>> {
+    if !rdp.color_image_set {
+        *dropped_runs += 1;
+        diags.push(Diagnostic {
+            at: pc,
+            kind: DiagKind::DrawBeforeCimg,
+        });
+        return None;
+    }
+
+    if crate::hle::rsp::validate_depth_alias(rdp, true, diags, pc).is_none()
+        || !crate::hle::combiner::validate_fill_inputs(rdp, diags, pc)
+    {
+        *dropped_runs += 1;
+        return None;
+    }
+
+    crate::hle::rsp::ensure_pair_open(scene, rdp, rec);
+    crate::hle::rsp::record_scissor_if_changed(scene, rdp, rec);
+    let color_raw = rdp.fill_color_raw;
+    scene.framebuffer_pairs[rec.cur_pair]
+        .ops
+        .push(crate::hle::rsp::SceneOp::FillRect {
+            rect,
+            color_raw,
+            convert: rdp.convert,
+            key: rdp.key,
+        });
+    scene.draw_origins.push(crate::scene::DrawOrigin {
+        pc,
+        depth_image: rdp.depth_image,
+        scissor: rdp.scissor,
+        indices: 0..0,
+        rectangle: Some((
+            rec.cur_pair,
+            scene.framebuffer_pairs[rec.cur_pair].ops.len() - 1,
+        )),
+    });
+    Some(Emission::FillRect {
+        target: framebuffer_target(scene, rec.cur_pair),
+        op_index: (scene.framebuffer_pairs[rec.cur_pair].ops.len() - 1) as u32,
+        rect,
+        color_raw,
+    })
 }
 
 #[cfg(test)]
