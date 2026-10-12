@@ -25,6 +25,9 @@ fn vs_main(in: VsIn) -> VsOut {
         out.clip_position.x += in.position.w / f32(combiner.frame.z);
         out.clip_position.y -= in.position.w / f32(combiner.frame.w);
     }
+    if combiner.prim_depth >= 0.0 {
+        out.clip_position.z = combiner.prim_depth * out.clip_position.w;
+    }
     out.color = in.color;
     out.uv = in.uv;
     return out;
@@ -59,7 +62,7 @@ struct Combiner {
                                 // decoded). In LOCKSTEP with the Rust CombinerUniform.
     frame:           vec4<u32>, // serial, seed, raster viewport width and height
     is_rect:         u32,
-    _pad0:           u32,
+    prim_depth:      f32,       // G_ZS_PRIM depth (0..1), or negative for the primitive's own z
     _pad1:           u32,
     _pad2:           u32,
 };

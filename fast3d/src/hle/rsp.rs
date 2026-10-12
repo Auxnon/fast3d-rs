@@ -1130,7 +1130,6 @@ pub(crate) fn snapshot_run(
     }
 
     validate_depth_alias(rdp, false, diags, pc)?;
-    validate_depth_source(rdp, diags, pc)?;
     // --- Material ---
     let material_index = if rsp.material_dirty {
         // Rebuild: build_material borrows rdp + rsp immutably; ? early-exits (None) on failure.
@@ -1282,7 +1281,6 @@ pub(crate) fn snapshot_rect_run(
     pc: u64,
 ) -> Option<(u32, u32)> {
     validate_depth_alias(rdp, false, diags, pc)?;
-    validate_depth_source(rdp, diags, pc)?;
     let m = crate::hle::combiner::build_rect_material(rdp, rsp, tile, diags, pc)?;
     let material_index = match scene.materials.last() {
         Some(last) if last.matches(&m, &rsp.profiling) => (scene.materials.len() - 1) as u32,
@@ -1320,21 +1318,6 @@ pub(crate) fn validate_depth_alias(
             kind: crate::diag::DiagKind::UnsupportedDepthAlias {
                 address: rdp.color_image.addr,
             },
-        });
-        return None;
-    }
-    Some(())
-}
-
-fn validate_depth_source(
-    rdp: &crate::hle::rdp::Rdp,
-    diags: &mut Vec<crate::diag::Diagnostic>,
-    pc: u64,
-) -> Option<()> {
-    if rdp.other_mode_l & crate::hle::consts::G_ZS_PRIM != 0 {
-        diags.push(crate::diag::Diagnostic {
-            at: pc,
-            kind: crate::diag::DiagKind::UnsupportedPrimitiveDepthSource,
         });
         return None;
     }

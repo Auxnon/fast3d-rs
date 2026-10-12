@@ -300,6 +300,7 @@ impl<'a> RenderInputs<'a> {
                                     let mut uniform =
                                         CombinerUniform::from_run(mat, mode, run.fog_color);
                                     uniform.inv_tex_size = super::triangle_inv_tex_size(mat);
+                                    uniform.set_prim_depth(mode, run.prim_depth);
                                     (
                                         DrawInputs::Tris {
                                             cull: run.cull,
@@ -329,6 +330,7 @@ impl<'a> RenderInputs<'a> {
                                     material_index,
                                     render_mode_index,
                                     fog_color,
+                                    prim_depth,
                                     fb_source,
                                     ..
                                 } => {
@@ -339,11 +341,11 @@ impl<'a> RenderInputs<'a> {
                                             mat.fmt,
                                         )
                                     } else {
-                                        CombinerUniform::from_rect(
-                                            mat,
-                                            &scene.render_modes[*render_mode_index as usize],
-                                            *fog_color,
-                                        )
+                                        let mode = &scene.render_modes[*render_mode_index as usize];
+                                        let mut uniform =
+                                            CombinerUniform::from_rect(mat, mode, *fog_color);
+                                        uniform.set_prim_depth(mode, *prim_depth);
+                                        uniform
                                     };
                                     let fb_source = fb_source
                                         .and_then(|address| descriptors.get(address, false));

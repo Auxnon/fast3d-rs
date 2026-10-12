@@ -41,6 +41,8 @@ pub struct RenderMode {
     pub z_test: bool,
     pub z_write: bool,
     pub z_mode: ZMode,
+    /// G_ZS_PRIM: depth comes from G_SETPRIMDEPTH instead of the primitive's own z.
+    pub prim_depth_source: bool,
     pub fog: bool,
     pub alpha_compare: AlphaCompare,
     pub cvg_x_alpha: bool,
@@ -79,6 +81,7 @@ pub fn decode_render_mode(other_mode_l: u32, other_mode_h: u32, geom: u32) -> Re
         z_test: other_mode_l & Z_CMP != 0,
         z_write: other_mode_l & Z_UPD != 0,
         z_mode,
+        prim_depth_source: other_mode_l & crate::hle::consts::G_ZS_PRIM != 0,
         // NOTE: `crate::hle::consts::G_FOG` is retained here (not threaded via GbiConstants) because this
         // is public API consumed cross-crate by the renderer, and the geom-mode G_FOG bit is
         // ucode-invariant across F3D/F3DEX/F3DEX2. Kept in lockstep with the scene-fog read

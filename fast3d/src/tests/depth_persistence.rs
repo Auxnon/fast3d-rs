@@ -172,6 +172,41 @@ fn depth_shared_across_color_switches() {
     }
 }
 
+/// G_ZS_PRIM replaces each pixel's depth with the G_SETPRIMDEPTH value: a quad behind the
+/// earlier geometry wins with prim z 0, and a quad in front of it loses with prim z 0x7fff.
+#[test]
+fn prim_depth_source_replaces_primitive_depth() {
+    const LEFT: [u32; 4] = [32, 32, 144, 208];
+    const RIGHT: [u32; 4] = [176, 32, 288, 208];
+    let mut b = DlBuilder::new();
+    let mut dl = setup(&mut b, Z, Z);
+    fill(&mut dl, 0xfffc_fffc, [0, 0, 319, 239]);
+    dl.push(gdp_set_color_image(0, 2, 320, A));
+    fill(&mut dl, 0x0001_0001, [0, 0, 319, 239]);
+    quad(&mut b, &mut dl, [32, 32, 144, 208], 0, RED);
+    quad(&mut b, &mut dl, [176, 32, 288, 208], 64, RED);
+    dl.extend([gdp_set_other_mode_l(2, 1, 4), gdp_set_prim_depth(0, 0)]);
+    quad(&mut b, &mut dl, [32, 32, 144, 208], 64, BLUE);
+    dl.push(gdp_set_prim_depth(0x7fff, 0));
+    quad(&mut b, &mut dl, [176, 32, 288, 208], 0, GREEN);
+    dl.push(gdp_set_other_mode_l(2, 1, 0));
+    let scene = interpret(&finish(b, dl));
+    let (device, queue) = headless_device_forced_fallback();
+    for policy in POLICIES {
+        let mut renderer = SceneRenderer::new(&device, FORMAT, 320, 240, false);
+        renderer.render_into_store(&device, &queue, &scene, policy);
+        assert_pixels(&scanout(&device, &queue, &mut renderer, A), |x, y| {
+            if inside(x, y, LEFT) {
+                BLUE
+            } else if inside(x, y, RIGHT) {
+                RED
+            } else {
+                BLACK
+            }
+        });
+    }
+}
+
 fn draw_task(color: u32, depth: u32, z: i16, rgba: [u8; 4]) -> crate::hle::Scene {
     let mut b = DlBuilder::new();
     let mut dl = setup(&mut b, color, depth);

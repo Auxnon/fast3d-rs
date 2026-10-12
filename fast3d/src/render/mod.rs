@@ -195,11 +195,25 @@ pub struct CombinerUniform {
     /// Low 32 bits of frame serial, dither seed, raster viewport width and height.
     pub frame: [u32; 4],
     pub is_rect: u32,
-    pub _pad: [u32; 3],
+    /// Normalized G_SETPRIMDEPTH z for G_ZS_PRIM draws, or negative to keep the primitive's
+    /// own depth. The vertex shader replaces clip z with `prim_depth * w`, as RT64 does.
+    pub prim_depth: f32,
+    pub _pad: [u32; 2],
 }
 const _: () = assert!(std::mem::size_of::<CombinerUniform>() == 192);
 
 impl CombinerUniform {
+    /// Uses `depth` for the whole draw when the render mode selects G_ZS_PRIM.
+    pub fn set_prim_depth(
+        &mut self,
+        rm: &crate::hle::RenderMode,
+        depth: crate::scene::PrimitiveDepth,
+    ) {
+        if rm.prim_depth_source {
+            self.prim_depth = f32::from(depth.z & 0x7FFF) / 32768.0;
+        }
+    }
+
     fn alpha_flags(rm: &crate::hle::RenderMode) -> u32 {
         let compare = match rm.alpha_compare {
             crate::hle::AlphaCompare::None => 0,
@@ -293,7 +307,8 @@ impl CombinerUniform {
             },
             frame: [0; 4],
             is_rect: 0,
-            _pad: [0; 3],
+            prim_depth: -1.0,
+            _pad: [0; 2],
         }
     }
 
@@ -380,7 +395,8 @@ impl CombinerUniform {
             inv_detail_size: [1.0, 1.0, 0.0, 0.0],
             frame: [0; 4],
             is_rect: 1,
-            _pad: [0; 3],
+            prim_depth: -1.0,
+            _pad: [0; 2],
         }
     }
 
@@ -416,7 +432,8 @@ impl CombinerUniform {
             inv_detail_size: [1.0, 1.0, 0.0, 0.0],
             frame: [0; 4],
             is_rect: 1,
-            _pad: [0; 3],
+            prim_depth: -1.0,
+            _pad: [0; 2],
         }
     }
 }
