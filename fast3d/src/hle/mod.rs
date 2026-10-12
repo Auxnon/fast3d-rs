@@ -3,6 +3,7 @@ pub mod blender;
 #[cfg(feature = "capture")]
 pub mod capture;
 pub mod combiner;
+pub(crate) mod extended;
 pub use n64_gbi::consts;
 pub mod gbi;
 #[cfg(all(not(target_arch = "wasm32"), target_pointer_width = "64"))]

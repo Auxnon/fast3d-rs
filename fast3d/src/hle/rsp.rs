@@ -82,6 +82,8 @@ pub struct Rsp {
     pub(crate) no_near_clip: bool,
     /// S2DEX2 `G_OBJ_RENDERMODE` flags.
     pub obj_render_mode: u32,
+    /// RT64 `gEXForceBranch`: conditional branches (`G_BRANCH_Z`/`W`) are always taken.
+    pub(crate) force_branch: bool,
     pub num_dir: u32,
     pub light_version: u64,
     // Dedup state for object-space light prefold.
@@ -140,6 +142,7 @@ impl Default for Rsp {
             point_lighting: false,
             no_near_clip: false,
             obj_render_mode: 0,
+            force_branch: false,
             num_dir: 0,
             light_version: 0,
             last_light_key: None,
@@ -278,6 +281,33 @@ impl Rsp {
         Ok(())
     }
 
+    /// The current viewport (scale, translation), for `gEXPushViewport`.
+    pub(crate) fn viewport(&self) -> ([f32; 3], [f32; 3]) {
+        (self.vp_scale, self.vp_trans)
+    }
+
+    /// Restores a viewport saved by [`Self::viewport`] (`gEXPopViewport`).
+    pub(crate) fn restore_viewport(&mut self, (scale, trans): ([f32; 3], [f32; 3])) {
+        self.vp_scale = scale;
+        self.vp_trans = trans;
+        let entry = (scale, trans);
+        if self.viewport_table.last() != Some(&entry) {
+            self.viewport_table.push(entry);
+            self.cur_viewport_index = (self.viewport_table.len() - 1) as u32;
+        }
+    }
+
+    /// The current projection matrix, for `gEXPushProjectionMatrix`.
+    pub(crate) fn projection(&self) -> Mat4 {
+        self.viewproj
+    }
+
+    /// Restores a projection saved by [`Self::projection`] (`gEXPopProjectionMatrix`).
+    pub(crate) fn restore_projection(&mut self, projection: Mat4) {
+        self.viewproj = projection;
+        self.recompute_mvp();
+    }
+
     /// Switch microcodes mid-list (G_LOAD_UCODE). Matrices, lights and vertices stay, as in
     /// RT64; loading S2DEX2 resets its object render mode.
     pub(crate) fn switch_microcode(&mut self, ucode: crate::hle::gbi::GbiUcode) {
@@ -402,6 +432,23 @@ impl Rsp {
             error.address = addr;
             error
         })?;
+        self.set_vertex_with_stride(mem, addr, count, dst, rdp, scene, stride)
+    }
+
+    /// Loads vertices `stride` bytes apart, whose first 16 bytes are a standard `Vtx`. RT64's
+    /// `gEXVertex` uses 24-byte vertices (the extra bytes are the previous frame's position,
+    /// for interpolation).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn set_vertex_with_stride<M: Rdram>(
+        &mut self,
+        mem: &M,
+        addr: u64,
+        count: u32,
+        dst: u32,
+        rdp: &crate::hle::rdp::Rdp,
+        scene: &mut Scene,
+        stride: u64,
+    ) -> Result<(), MemoryError> {
         let length = u64::from(count).checked_mul(stride).ok_or(MemoryError {
             address: addr,
             length: u64::MAX,
@@ -640,7 +687,7 @@ impl Rsp {
             });
         }
         let z = self.screen_z[index as usize].ok_or(DiagKind::InvalidVertexTransform { index })?;
-        Ok(z <= f64::from(threshold) / 65536.0)
+        Ok(self.force_branch || z <= f64::from(threshold) / 65536.0)
     }
 
     /// F3DZEX2 G_BRANCH_W: branch when the vertex's clip-space W is below `threshold`
@@ -658,7 +705,7 @@ impl Rsp {
             });
         }
         let w = self.clip_w[index as usize].ok_or(DiagKind::InvalidVertexTransform { index })?;
-        Ok(w < threshold as f32)
+        Ok(self.force_branch || w < threshold as f32)
     }
 
     /// Modify a loaded cache slot without changing vertices recorded by earlier draws.

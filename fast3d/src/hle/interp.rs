@@ -331,6 +331,9 @@ pub(crate) fn interpret_profiled<M: Rdram>(
     let mut unknown_seen = [false; 256];
     let mut rdphalf_1 = None;
     let mut rejected = false;
+    // RT64 extended GBI, enabled by a G_SPNOOP hook.
+    let mut ext = crate::hle::extended::ExtendedState::default();
+    let mut z_test_reported = false;
 
     let mut pc: u64 = entry;
     let mut return_stack: Vec<u64> = Vec::new();
@@ -468,6 +471,42 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                         Control::Abort
                     }
                 }
+            } else if ucode.rdphalf1_is_data()
+                && op == crate::hle::consts::G_SPNOOP
+                && c.p0(0, 24) == crate::hle::extended::HOOK_MAGIC
+            {
+                // RT64 hook: enable/disable the extended GBI, or call/branch to a list.
+                use crate::hle::extended::hook;
+                let value = c.w1 & 0x0FFF_FFFF;
+                match c.w1 >> 28 {
+                    hook::ENABLE => {
+                        ext.opcode = Some(value as u8);
+                        Control::Continue
+                    }
+                    hook::DISABLE => {
+                        ext.opcode = None;
+                        Control::Continue
+                    }
+                    hook::DL => {
+                        Control::Call(walk_try!(Command, mem.resolve_masked(u64::from(value))))
+                    }
+                    hook::BRANCH => {
+                        Control::Branch(walk_try!(Command, mem.resolve_masked(u64::from(value))))
+                    }
+                    // gEXGetVersion writes to RDRAM, which fast3d can't; other operations
+                    // are unknown.
+                    hook::GET_VERSION | 5.. => {
+                        diags.push(Diagnostic {
+                            at: pc,
+                            kind: DiagKind::UnsupportedCommand {
+                                opcode: op,
+                                w0: c.w0,
+                                w1: c.w1_addr,
+                            },
+                        });
+                        Control::Continue
+                    }
+                }
             } else if ucode.rdphalf1_is_data() && op == crate::hle::consts::G_LOAD_UCODE {
                 // gSPLoadUcodeL: RDPHALF_1 holds the data segment, w0's low 16 bits its size
                 // minus one. Identify the new microcode by its version string.
@@ -536,6 +575,165 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     break 'dispatch;
                 }
                 Control::Continue => {}
+            }
+            if ext.opcode == Some(op) {
+                // An extended command: a subcommand plus up to two more command slots.
+                use crate::hle::extended::op as ex;
+                let sub = c.p0(0, 24);
+                let mut words = [c; 3];
+                let mut next_pc = pc;
+                for word in words
+                    .iter_mut()
+                    .take(crate::hle::extended::command_slots(sub))
+                    .skip(1)
+                {
+                    next_pc = walk_try!(Continuation, checked_span(next_pc, stride));
+                    let cmd = walk_try!(Continuation, mem.read_command(next_pc));
+                    if let Some(observed) = &mut observed {
+                        observed.push_word(next_pc, &cmd);
+                    }
+                    *word = Cmd {
+                        w0: cmd.w0,
+                        w1: cmd.w1,
+                        w1_addr: cmd.w1_addr,
+                    };
+                }
+                next_pc = walk_try!(Command, checked_span(next_pc, stride));
+                let s16 = |w: u32, pos: u8| ((w >> pos) & 0xFFFF) as i16;
+                match sub {
+                    ex::TEXRECT => {
+                        // Coordinates are signed 10.2 (offscreen for widescreen); the origins
+                        // only matter for widescreen.
+                        let [w0, w1, w2] = words;
+                        let rect = crate::hle::TexRectBounds {
+                            ulx: s16(w1.w0, 16).into(),
+                            uly: s16(w1.w0, 0).into(),
+                            lrx: s16(w1.w1, 16).into(),
+                            lry: s16(w1.w1, 0).into(),
+                        };
+                        let params = (
+                            w0.p1(0, 3) as u8,
+                            s16(w2.w0, 16),
+                            s16(w2.w0, 0),
+                            s16(w2.w1, 16),
+                            s16(w2.w1, 0),
+                            w0.p1(7, 1) != 0,
+                        );
+                        let emission = record_texrect(
+                            &mut rsp,
+                            &mut rdp,
+                            &mut scene,
+                            &mut rec,
+                            &mut diags,
+                            &mut dropped_runs,
+                            pc,
+                            rect,
+                            params,
+                        );
+                        if let (Some(observed), Some(emission)) = (&mut observed, emission) {
+                            observed.emission = Some(emission);
+                        }
+                    }
+                    ex::FILLRECT => {
+                        let w1 = words[1];
+                        let rect = crate::hle::rsp::Rect {
+                            ulx: i32::from(s16(w1.w0, 16)) >> 2,
+                            uly: i32::from(s16(w1.w0, 0)) >> 2,
+                            lrx: i32::from(s16(w1.w1, 16)) >> 2,
+                            lry: i32::from(s16(w1.w1, 0)) >> 2,
+                        };
+                        let emission = record_fillrect(
+                            &mut rdp,
+                            &mut scene,
+                            &mut rec,
+                            &mut diags,
+                            &mut dropped_runs,
+                            pc,
+                            rect,
+                        );
+                        if let (Some(observed), Some(emission)) = (&mut observed, emission) {
+                            observed.emission = Some(emission);
+                        }
+                    }
+                    ex::SETVIEWPORT => {
+                        let addr = walk_try!(Viewport, mem.resolve_masked(words[1].w1_addr));
+                        walk_try!(Viewport, rsp.set_viewport(&mem, addr));
+                    }
+                    ex::SETSCISSOR => {
+                        let w1 = words[1];
+                        rdp.scissor_set = true;
+                        rdp.scissor = crate::hle::rsp::Scissor {
+                            ulx: i32::from(s16(w1.w0, 16)) >> 2,
+                            uly: i32::from(s16(w1.w0, 0)) >> 2,
+                            mode: words[0].p1(0, 2) as u8,
+                            lrx: i32::from(s16(w1.w1, 16)) >> 2,
+                            lry: i32::from(s16(w1.w1, 0)) >> 2,
+                        };
+                    }
+                    ex::VERTEX => {
+                        // gEXVertex: 24-byte vertices (Vtx plus the previous position).
+                        let count = words[0].p1(8, 8);
+                        let dst = words[0].p1(0, 8);
+                        if (dst + count) as usize > crate::hle::rsp::RSP_MAX_VERTICES {
+                            diags.push(Diagnostic {
+                                at: pc,
+                                kind: DiagKind::VtxOutOfRange {
+                                    count,
+                                    end: dst + count,
+                                },
+                            });
+                        } else {
+                            let addr = walk_try!(Vertex, mem.resolve_masked(words[1].w1_addr));
+                            walk_try!(
+                                Vertex,
+                                rsp.set_vertex_with_stride(
+                                    &mem, addr, count, dst, &rdp, &mut scene, 24
+                                )
+                            );
+                        }
+                    }
+                    ex::VERTEXZTEST => {
+                        // Needs the depth buffer; the guarded geometry is dropped instead.
+                        ext.z_test = true;
+                        if !z_test_reported {
+                            z_test_reported = true;
+                            diags.push(Diagnostic {
+                                at: pc,
+                                kind: DiagKind::UnsupportedExtendedCommand { command: sub },
+                            });
+                        }
+                    }
+                    ex::ENDVERTEXZTEST => ext.z_test = false,
+                    // Interpolation and widescreen alignment.
+                    ex::MATRIXGROUP
+                    | ex::EDITGROUPBYADDRESS
+                    | ex::SETRECTALIGN
+                    | ex::SETVIEWPORTALIGN
+                    | ex::SETSCISSORALIGN => {}
+                    _ => {
+                        if !ext.state_command(sub, words[0].w1, &mut rsp, &mut rdp) {
+                            diags.push(Diagnostic {
+                                at: pc,
+                                kind: DiagKind::UnsupportedExtendedCommand { command: sub },
+                            });
+                        }
+                    }
+                }
+                pc = next_pc;
+                break 'dispatch;
+            }
+            if ext.z_test
+                && ucode.is_f3dex2_family()
+                && matches!(
+                    op,
+                    crate::hle::consts::G_TRI1
+                        | crate::hle::consts::G_TRI2
+                        | crate::hle::consts::G_QUAD
+                )
+            {
+                dropped_runs += 1;
+                pc = walk_try!(Command, checked_span(pc, stride));
+                break 'dispatch;
             }
             if ucode.rdphalf1_is_data() && op == crate::hle::consts::G_RDPHALF_1 {
                 rdphalf_1 = Some(c.w1_addr);

@@ -25,6 +25,7 @@ mod decode;
 mod depth_persistence;
 mod dl_plumbing;
 mod e2e;
+mod extended_gbi;
 #[cfg(feature = "capture")]
 mod f3dex2_fixtures;
 mod facade;

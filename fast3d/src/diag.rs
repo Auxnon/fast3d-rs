@@ -137,6 +137,11 @@ pub enum DiagKind {
         index: u32,
     },
     MissingBranchTarget,
+    /// An RT64 extended-GBI subcommand (`w0 & 0xFFFFFF`) that isn't implemented; the
+    /// geometry it affects may be dropped (e.g. `gEXVertexZTest` spans).
+    UnsupportedExtendedCommand {
+        command: u32,
+    },
     UnhandledMovemem(u8),
     UnhandledMoveword(u8),
     NonCanonicalBlend,
@@ -195,6 +200,7 @@ impl DiagKind {
             | DiagKind::InvalidConditionalVertex { .. }
             | DiagKind::InvalidVertexTransform { .. }
             | DiagKind::MissingBranchTarget
+            | DiagKind::UnsupportedExtendedCommand { .. }
             | DiagKind::NoTextureLoaded
             | DiagKind::TextureBytesUnavailable { .. }
             | DiagKind::SecondTextureUndecodable
@@ -306,6 +312,9 @@ impl std::fmt::Display for DiagKind {
                 write!(f, "invalid vertex transform: index={index}")
             }
             DiagKind::MissingBranchTarget => write!(f, "BRANCH_Z missing RDPHALF_1 target"),
+            DiagKind::UnsupportedExtendedCommand { command } => {
+                write!(f, "unsupported RT64 extended GBI command 0x{command:02X}")
+            }
             DiagKind::UnhandledMovemem(idx) => write!(f, "unhandled MOVEMEM index 0x{idx:02X}"),
             DiagKind::UnhandledMoveword(ty) => write!(f, "unhandled G_MOVEWORD type 0x{ty:02X}"),
             DiagKind::NonCanonicalBlend => {
@@ -428,6 +437,7 @@ mod tests {
             },
             DiagKind::InvalidVertexTransform { index: 0 },
             DiagKind::MissingBranchTarget,
+            DiagKind::UnsupportedExtendedCommand { command: 0x0A },
             DiagKind::NoTextureLoaded,
             DiagKind::SecondTextureUndecodable,
             DiagKind::UnhandledMovemem(0),
