@@ -1,6 +1,6 @@
 //! Public microcode selector (spec §3.6). Mirrors the crate-internal `crate::hle::gbi::GbiUcode`.
 
-use crate::hle::gbi::{detect_from_ucode_hash, GbiUcode};
+use crate::hle::gbi::{detect_from_ucode_data, detect_from_ucode_hash, GbiUcode};
 
 /// Which N64 graphics microcode a display list targets. An explicit per-`process_dl` argument.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -11,6 +11,10 @@ pub enum Microcode {
     F3dex2,
     /// Original F3D microcode.
     F3d,
+    /// F3DZEX2 (`F3DZEX.NoN fifo 2.08I` and relatives), used by The Legend of Zelda:
+    /// Majora's Mask and Ocarina of Time. F3DEX2 plus `G_BRANCH_W`, point lights and no
+    /// near-plane clipping.
+    F3dzex2,
 }
 
 impl From<Microcode> for GbiUcode {
@@ -18,6 +22,7 @@ impl From<Microcode> for GbiUcode {
         match m {
             Microcode::F3dex2 => GbiUcode::F3dex2,
             Microcode::F3d => GbiUcode::F3d,
+            Microcode::F3dzex2 => GbiUcode::F3dzex2,
         }
     }
 }
@@ -27,8 +32,15 @@ impl From<GbiUcode> for Microcode {
         match u {
             GbiUcode::F3dex2 => Microcode::F3dex2,
             GbiUcode::F3d => Microcode::F3d,
+            GbiUcode::F3dzex2 => Microcode::F3dzex2,
         }
     }
+}
+
+/// Identifies a microcode from its data segment (`OSTask::ucode_data`, big-endian bytes)
+/// by the version string it embeds. Returns `None` for microcodes fast3d doesn't implement.
+pub fn detect_microcode_from_data(ucode_data: &[u8]) -> Option<Microcode> {
+    detect_from_ucode_data(ucode_data).map(Microcode::from)
 }
 
 /// Returns `None` for every hash until a ROM consumer supplies verified microcode
@@ -48,6 +60,8 @@ mod tests {
         assert_eq!(GbiUcode::from(Microcode::F3d), GbiUcode::F3d);
         assert_eq!(Microcode::from(GbiUcode::F3dex2), Microcode::F3dex2);
         assert_eq!(Microcode::from(GbiUcode::F3d), Microcode::F3d);
+        assert_eq!(GbiUcode::from(Microcode::F3dzex2), GbiUcode::F3dzex2);
+        assert_eq!(Microcode::from(GbiUcode::F3dzex2), Microcode::F3dzex2);
         assert_eq!(Microcode::default(), Microcode::F3dex2);
     }
 }

@@ -227,6 +227,24 @@ pub mod rsp_f3dex2 {
     pub const G_TEXTURE_GEN: u32 = 0x0004_0000;
     /// Linear texture-coordinate generation (F3DEX2 `G_TEXTURE_GEN_LINEAR`).
     pub const G_TEXTURE_GEN_LINEAR: u32 = 0x0008_0000;
+
+    /// G_MOVEMEM index that loads a full MVP matrix (gSPForceMatrix).
+    pub const G_MV_MATRIX: u8 = 0x0E;
+    /// G_MOVEWORD sub-type that writes 32 bits into the MVP matrix (gSPInsertMatrix).
+    pub const G_MW_MATRIX: u8 = 0x00;
+    /// G_MOVEWORD sub-type that writes a light's color words (gSPLightColor).
+    pub const G_MW_LIGHTCOL: u8 = 0x0A;
+    /// G_MOVEWORD sub-type that marks the MVP as forced (gSPForceMatrix's second command).
+    pub const G_MW_FORCEMTX: u8 = 0x0C;
+}
+
+/// F3DZEX2 (the Zelda microcode): F3DEX2 plus these.
+pub mod rsp_f3dzex2 {
+    /// Branch if a vertex's clip-space W is below a threshold (gSPBranchLessW); takes
+    /// F3DEX2's G_BRANCH_Z slot.
+    pub const G_BRANCH_W: u8 = 0x04;
+    /// Geometry mode: lights with a nonzero `kc` are positional (point) lights.
+    pub const G_LIGHTING_POSITIONAL: u32 = 0x0040_0000;
 }
 
 pub mod rsp_f3d {

@@ -67,6 +67,10 @@ impl Rdram for Traced<'_> {
 }
 
 fn walk(b: DlBuilder, expected_offsets: &[u64]) -> InterpResult {
+    walk_ucode(b, expected_offsets, GbiUcode::F3dex2)
+}
+
+fn walk_ucode(b: DlBuilder, expected_offsets: &[u64], ucode: GbiUcode) -> InterpResult {
     let built = b.finish("main");
     let reads = RefCell::new(Vec::new());
     let result = interpret(
@@ -75,7 +79,7 @@ fn walk(b: DlBuilder, expected_offsets: &[u64]) -> InterpResult {
             reads: &reads,
         },
         built.entry as u64,
-        GbiUcode::F3dex2,
+        ucode,
         GbiDataFormat::Fixed,
         None,
     );
@@ -83,7 +87,7 @@ fn walk(b: DlBuilder, expected_offsets: &[u64]) -> InterpResult {
     let observed = super::inspect::equivalent(
         || RdramImage::new(&built.rdram),
         built.entry as u64,
-        GbiUcode::F3dex2,
+        ucode,
         GbiDataFormat::Fixed,
     );
     assert_eq!(result, observed);
@@ -768,4 +772,81 @@ fn branchz_preserves_load_matrix() {
     expected.extend([target as u64, target as u64 + 8]);
     let r = walk(b, &expected);
     assert!(r.diags.is_empty(), "{:?}", r.diags);
+}
+
+#[test]
+fn branchw_compares_clip_w_strictly() {
+    // With identity matrices every vertex has clip W = 1.
+    for (threshold, taken) in [(0, false), (1, false), (2, true), (0xffff_ffff, true)] {
+        let mut b = DlBuilder::new();
+        let v = vertex(&mut b, &[[0, 0, 0]]);
+        let target = b.list("target", &[MARK, END]);
+        let [half, branch] = gsp_branch_less_w(target, 3, threshold);
+        let entry = b.list("main", &[gsp_vertex(3, 1, v), half, branch, END]);
+        let mut expected = offsets(entry, &[0, 1, 2]);
+        if taken {
+            expected.extend([target as u64, target as u64 + 8]);
+        } else {
+            expected.push(entry as u64 + 24);
+        }
+        let r = walk_ucode(b, &expected, GbiUcode::F3dzex2);
+        assert!(r.diags.is_empty(), "{threshold}: {:?}", r.diags);
+    }
+}
+
+#[test]
+fn branchw_uses_perspective_w() {
+    // A projection with W = Z: the vertex at z=100 has clip W = 100.
+    let mut perspective = [[0.0f32; 4]; 4];
+    perspective[0][0] = 1.0;
+    perspective[1][1] = 1.0;
+    perspective[2][2] = 1.0;
+    perspective[2][3] = 1.0;
+    for (threshold, taken) in [(100, false), (101, true)] {
+        let mut b = DlBuilder::new();
+        let v = vertex(&mut b, &[[0, 0, 100]]);
+        let projection = b.matrix(perspective);
+        let target = b.list("target", &[MARK, END]);
+        let [half, branch] = gsp_branch_less_w(target, 0, threshold);
+        let entry = b.list(
+            "main",
+            &[
+                gsp_matrix(projection, true, true, false),
+                gsp_vertex(0, 1, v),
+                half,
+                branch,
+                END,
+            ],
+        );
+        let mut expected = offsets(entry, &[0, 1, 2, 3]);
+        if taken {
+            expected.extend([target as u64, target as u64 + 8]);
+        } else {
+            expected.push(entry as u64 + 32);
+        }
+        let r = walk_ucode(b, &expected, GbiUcode::F3dzex2);
+        assert!(r.diags.is_empty(), "{threshold}: {:?}", r.diags);
+    }
+}
+
+#[test]
+fn f3dzex2_shares_culldl_with_f3dex2() {
+    // A vertex far outside +X is culled the same way under both microcodes.
+    for ucode in [GbiUcode::F3dex2, GbiUcode::F3dzex2] {
+        let mut b = DlBuilder::new();
+        let v = vertex(&mut b, &[[0x7000, 0, 0]]);
+        let child = b.list(
+            "child",
+            &[gsp_vertex(0, 1, v), gsp_culldisplaylist(0, 0), MARK, END],
+        );
+        let entry = b.list("main", &[gsp_displaylist(child), END]);
+        let expected = vec![
+            entry as u64,
+            child as u64,
+            child as u64 + 8,
+            entry as u64 + 8,
+        ];
+        let r = walk_ucode(b, &expected, ucode);
+        assert!(r.diags.is_empty(), "{ucode:?}: {:?}", r.diags);
+    }
 }

@@ -267,6 +267,56 @@ pub(crate) fn geometry_flags(
         Microcode::F3dex2 => flags!(rsp_f3dex2;
             G_ZBUFFER, G_SHADE, G_CULL_FRONT, G_CULL_BACK, G_FOG, G_LIGHTING,
             G_TEXTURE_GEN, G_TEXTURE_GEN_LINEAR, G_SHADING_SMOOTH, G_CLIPPING),
+        Microcode::F3dzex2 => {
+            use n64_gbi::consts::rsp_f3dex2::*;
+            use n64_gbi::consts::rsp_f3dzex2::G_LIGHTING_POSITIONAL;
+            &[
+                GeometryFlag {
+                    mask: G_ZBUFFER,
+                    name: "G_ZBUFFER",
+                },
+                GeometryFlag {
+                    mask: G_SHADE,
+                    name: "G_SHADE",
+                },
+                GeometryFlag {
+                    mask: G_CULL_FRONT,
+                    name: "G_CULL_FRONT",
+                },
+                GeometryFlag {
+                    mask: G_CULL_BACK,
+                    name: "G_CULL_BACK",
+                },
+                GeometryFlag {
+                    mask: G_FOG,
+                    name: "G_FOG",
+                },
+                GeometryFlag {
+                    mask: G_LIGHTING,
+                    name: "G_LIGHTING",
+                },
+                GeometryFlag {
+                    mask: G_TEXTURE_GEN,
+                    name: "G_TEXTURE_GEN",
+                },
+                GeometryFlag {
+                    mask: G_TEXTURE_GEN_LINEAR,
+                    name: "G_TEXTURE_GEN_LINEAR",
+                },
+                GeometryFlag {
+                    mask: G_LIGHTING_POSITIONAL,
+                    name: "G_LIGHTING_POSITIONAL",
+                },
+                GeometryFlag {
+                    mask: G_SHADING_SMOOTH,
+                    name: "G_SHADING_SMOOTH",
+                },
+                GeometryFlag {
+                    mask: G_CLIPPING,
+                    name: "G_CLIPPING",
+                },
+            ]
+        }
         Microcode::F3d => flags!(rsp_f3d;
             G_ZBUFFER, G_TEXTURE_ENABLE, G_SHADE, G_SHADING_SMOOTH, G_CULL_FRONT,
             G_CULL_BACK, G_FOG, G_LIGHTING, G_TEXTURE_GEN, G_TEXTURE_GEN_LINEAR,

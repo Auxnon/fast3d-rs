@@ -158,6 +158,10 @@ fn move_mem<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     if idx == cx.gbi_consts.g_mv_viewport as u32 {
         let addr = memory_try!(cx, Viewport, cx.mem.resolve_masked(c.w1_addr));
         memory_try!(cx, Viewport, cx.rsp.set_viewport(cx.mem, addr));
+    } else if idx == crate::hle::consts::G_MV_MATRIX as u32 {
+        // gSPForceMatrix: load the MVP directly (the G_MW_FORCEMTX word follows).
+        let addr = memory_try!(cx, Matrix, cx.mem.resolve_masked(c.w1_addr));
+        memory_try!(cx, Matrix, cx.rsp.force_matrix(cx.mem, addr));
     } else if idx == cx.gbi_consts.g_mv_light as u32 {
         let byte_off = c.p0(8, 8) * 8;
         let light_idx = byte_off / 24;
@@ -225,6 +229,18 @@ fn move_word<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
         // clip ratio — RSP viewport state, no scene effect
     } else if ty == cx.gbi_consts.g_mw_numlight as u32 {
         cx.rsp.set_num_lights(c.w1);
+    } else if ty == crate::hle::consts::G_MW_LIGHTCOL as u32 {
+        // gSPLightColor: offset / 24 is the light index (0 = first directional light).
+        cx.rsp.set_light_color(c.p0(0, 16) / 24, c.w1);
+    } else if ty == crate::hle::consts::G_MW_FORCEMTX as u32 {
+        // Zero means the MVP is no longer forced: recompute it from the matrix stacks.
+        if c.w1 == 0 {
+            cx.rsp.unforce_matrix();
+        }
+    } else if ty == crate::hle::consts::G_MW_MATRIX as u32 {
+        if let Err(kind) = cx.rsp.insert_matrix(c.p0(0, 16), c.w1) {
+            cx.diags.push(Diagnostic { at: cx.pc, kind });
+        }
     } else if ty == cx.gbi_consts.g_mw_fog as u32 {
         // G_MW_FOG data word: high i16 = fog multiplier (fm), low i16 = fog offset (fo).
         // The ucode already converted min/max to fm/fo; HLE reads them directly (no re-derive).

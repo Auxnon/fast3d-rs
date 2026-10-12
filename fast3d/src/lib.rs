@@ -24,7 +24,7 @@ pub use diag::{
     Severity,
 };
 // ── New vNext public API (spec §3.6): microcode selector ──
-pub use microcode::{detect_microcode, Microcode};
+pub use microcode::{detect_microcode, detect_microcode_from_data, Microcode};
 // ── Vertex/matrix data layout (`Fixed` N64 / `Float` GBI_FLOATS), orthogonal to the microcode ──
 pub use crate::hle::mem::GbiDataFormat as DataFormat;
 // ── New vNext public API (spec §3.5): render hooks ──

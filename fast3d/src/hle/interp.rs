@@ -416,7 +416,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                 }
             } else if op == gbi.consts.g_enddl {
                 Control::Return
-            } else if ucode == crate::hle::gbi::GbiUcode::F3dex2
+            } else if ucode.is_f3dex2_family()
                 && matches!(
                     op,
                     crate::hle::consts::G_CULLDL | crate::hle::consts::G_BRANCH_Z
@@ -435,7 +435,13 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     rdphalf_1
                         .ok_or(DiagKind::MissingBranchTarget)
                         .and_then(|target| {
-                            rsp.branch_z(c.p0(1, 11), c.w1).and_then(|taken| {
+                            // F3DZEX2 replaces G_BRANCH_Z with G_BRANCH_W in the same slot.
+                            let taken = if ucode == crate::hle::gbi::GbiUcode::F3dzex2 {
+                                rsp.branch_w(c.p0(1, 7), c.w1)
+                            } else {
+                                rsp.branch_z(c.p0(1, 11), c.w1)
+                            };
+                            taken.and_then(|taken| {
                                 if taken {
                                     mem.resolve_masked(target).map(Control::Branch).map_err(
                                         |error| DiagKind::MemoryRead {
@@ -456,9 +462,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                         Control::Abort
                     }
                 }
-            } else if ucode == crate::hle::gbi::GbiUcode::F3dex2
-                && op == crate::hle::consts::G_LOAD_UCODE
-            {
+            } else if ucode.is_f3dex2_family() && op == crate::hle::consts::G_LOAD_UCODE {
                 diags.push(Diagnostic {
                     at: pc,
                     kind: DiagKind::UnsupportedMicrocodeLoad {
@@ -486,9 +490,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                 }
                 Control::Return => match return_stack.pop() {
                     Some(ret) => {
-                        flow = if op == crate::hle::consts::G_CULLDL
-                            && ucode == crate::hle::gbi::GbiUcode::F3dex2
-                        {
+                        flow = if op == crate::hle::consts::G_CULLDL && ucode.is_f3dex2_family() {
                             WalkFlow::Branch
                         } else {
                             WalkFlow::Return
@@ -507,12 +509,12 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                 }
                 Control::Continue => {}
             }
-            if ucode == crate::hle::gbi::GbiUcode::F3dex2 && op == crate::hle::consts::G_RDPHALF_1 {
+            if ucode.is_f3dex2_family() && op == crate::hle::consts::G_RDPHALF_1 {
                 rdphalf_1 = Some(c.w1_addr);
                 pc = walk_try!(Command, checked_span(pc, stride));
                 break 'dispatch;
             }
-            if ucode == crate::hle::gbi::GbiUcode::F3dex2
+            if ucode.is_f3dex2_family()
                 && matches!(
                     op,
                     crate::hle::consts::G_CULLDL | crate::hle::consts::G_BRANCH_Z

@@ -56,6 +56,7 @@ mod native {
             let microcode = match task.microcode {
                 Microcode::F3d => "f3d",
                 Microcode::F3dex2 => "f3dex2",
+                Microcode::F3dzex2 => "f3dzex2",
             };
             write!(
                 tasks,

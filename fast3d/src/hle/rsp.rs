@@ -37,6 +37,8 @@ pub struct Rsp {
     loaded: [bool; RSP_MAX_VERTICES],
     clip_codes: [Option<u8>; RSP_MAX_VERTICES],
     screen_z: [Option<f64>; RSP_MAX_VERTICES],
+    /// Clip-space W of each cache slot (F3DZEX2's G_BRANCH_W compares it).
+    clip_w: [Option<f32>; RSP_MAX_VERTICES],
     used: [bool; RSP_MAX_VERTICES],
     model_stack: [Mat4; RSP_MATRIX_STACK_SIZE],
     model_stack_size: usize,
@@ -87,6 +89,7 @@ impl Default for Rsp {
             loaded: [false; RSP_MAX_VERTICES],
             clip_codes: [None; RSP_MAX_VERTICES],
             screen_z: [None; RSP_MAX_VERTICES],
+            clip_w: [None; RSP_MAX_VERTICES],
             used: [false; RSP_MAX_VERTICES],
             model_stack: [identity(); RSP_MATRIX_STACK_SIZE],
             model_stack_size: 1,
@@ -243,6 +246,44 @@ impl Rsp {
     /// their state.
     pub fn force_matrix<M: Rdram>(&mut self, mem: &M, addr: u64) -> Result<(), MemoryError> {
         self.mvp = mem.read_matrix(addr, self.data_format)?;
+        if self.mvp_table.last() != Some(&self.mvp) {
+            self.mvp_table.push(self.mvp);
+        }
+        self.cur_mvp_index = (self.mvp_table.len() - 1) as u32;
+        Ok(())
+    }
+
+    /// G_MW_FORCEMTX 0: drop a forced MVP and use the matrix stacks again.
+    pub fn unforce_matrix(&mut self) {
+        self.recompute_mvp();
+    }
+
+    /// G_MW_MATRIX (gSPInsertMatrix): write 32 bits into the MVP's fixed-point layout. The
+    /// RSP keeps a matrix as 16 signed integer halves (offsets 0x00..0x1F) followed by 16
+    /// fraction halves (0x20..0x3F); `value` holds two halves, high half first.
+    pub(crate) fn insert_matrix(
+        &mut self,
+        offset: u32,
+        value: u32,
+    ) -> Result<(), crate::diag::DiagKind> {
+        if offset & 3 != 0 || offset >= 0x40 {
+            return Err(crate::diag::DiagKind::UnhandledMoveword(
+                crate::hle::consts::G_MW_MATRIX,
+            ));
+        }
+        let fraction = offset >= 0x20;
+        let first = ((offset & 0x1F) / 2) as usize;
+        for (k, half) in [(value >> 16) as u16, value as u16].into_iter().enumerate() {
+            let element = first + k;
+            let cell = &mut self.mvp[element / 4][element % 4];
+            let fixed = (f64::from(*cell) * 65536.0).floor() as i64 as i32;
+            let replaced = if fraction {
+                (fixed & !0xFFFF) | i32::from(half)
+            } else {
+                (i32::from(half as i16) << 16) | (fixed & 0xFFFF)
+            };
+            *cell = (f64::from(replaced) / 65536.0) as f32;
+        }
         if self.mvp_table.last() != Some(&self.mvp) {
             self.mvp_table.push(self.mvp);
         }
@@ -450,6 +491,7 @@ impl Rsp {
                     * f64::from(DEPTH_RANGE);
                 z.is_finite().then_some(z)
             });
+            self.clip_w[slot] = self.clip_codes[slot].map(|_| clip[3]);
             scene.raw_pos.push(v.pos);
             scene.modify_flags.push(0);
             scene.modify_screen.push([0.0; 4]);
@@ -524,6 +566,24 @@ impl Rsp {
         }
         let z = self.screen_z[index as usize].ok_or(DiagKind::InvalidVertexTransform { index })?;
         Ok(z <= f64::from(threshold) / 65536.0)
+    }
+
+    /// F3DZEX2 G_BRANCH_W: branch when the vertex's clip-space W is below `threshold`
+    /// (strictly, like RT64's `branchW`).
+    pub(crate) fn branch_w(
+        &self,
+        index: u32,
+        threshold: u32,
+    ) -> Result<bool, crate::diag::DiagKind> {
+        use crate::diag::DiagKind;
+        if index as usize >= RSP_MAX_VERTICES || !self.loaded[index as usize] {
+            return Err(DiagKind::InvalidConditionalVertex {
+                opcode: crate::hle::consts::rsp_f3dzex2::G_BRANCH_W,
+                index,
+            });
+        }
+        let w = self.clip_w[index as usize].ok_or(DiagKind::InvalidVertexTransform { index })?;
+        Ok(w < threshold as f32)
     }
 
     /// Modify a loaded cache slot without changing vertices recorded by earlier draws.
@@ -1352,6 +1412,41 @@ mod phase3_state_tests {
         rsp.finish(&mut scene);
 
         assert_eq!(scene.mvp_table.last(), Some(&forced));
+    }
+
+    #[test]
+    fn unforce_matrix_restores_the_stack_mvp() {
+        let bytes = mtx_to_bytes([
+            [2.0, 0.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 2.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]);
+        let mem = RdramImage::new(&bytes);
+        let mut rsp = Rsp::default();
+        let mut scene = Scene::default();
+        rsp.force_matrix(&mem, 0).unwrap();
+        rsp.unforce_matrix();
+        rsp.finish(&mut scene);
+        assert_eq!(scene.mvp_table.last(), Some(&identity()));
+    }
+
+    #[test]
+    fn insert_matrix_replaces_integer_and_fraction_halves() {
+        let mut rsp = Rsp::default();
+        let mut scene = Scene::default();
+        // Integer halves of elements 0 and 1 (offset 0): 3 and -2.
+        rsp.insert_matrix(0x00, 0x0003_FFFE).unwrap();
+        // Fraction halves of elements 2 and 3 (offset 0x24): 0.5 and 0.25.
+        rsp.insert_matrix(0x24, 0x8000_4000).unwrap();
+        rsp.finish(&mut scene);
+        let m = scene.mvp_table.last().unwrap();
+        assert_eq!(m[0], [3.0, -2.0, 0.5, 0.25]);
+        // Element 0 kept its integer part when only fractions change.
+        rsp.insert_matrix(0x20, 0x8000_0000).unwrap();
+        assert_eq!(rsp.mvp[0][0], 3.5);
+        assert!(rsp.insert_matrix(0x40, 0).is_err());
+        assert!(rsp.insert_matrix(0x02, 0).is_err());
     }
 }
 

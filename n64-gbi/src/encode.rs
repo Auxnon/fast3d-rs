@@ -246,6 +246,70 @@ pub fn gsp_culldisplaylist(first: u16, last: u16) -> (u32, u32) {
     )
 }
 
+/// F3DEX2 `gsDma2p`: a G_MOVEMEM of `len` bytes into DMEM index `idx` at byte offset `ofs`.
+pub fn gsp_dma2p(addr: u32, len: u32, idx: u8, ofs: u32) -> (u32, u32) {
+    let w0 = shiftl(G_MOVEMEM as u32, 24, 8)
+        | shiftl((len - 1) / 8, 19, 5)
+        | shiftl(ofs / 8, 8, 8)
+        | shiftl(idx as u32, 0, 8);
+    (w0, addr)
+}
+
+/// F3DEX2 `gsMoveWd(index, offset, data)`.
+pub fn gsp_move_word(index: u8, offset: u16, data: u32) -> (u32, u32) {
+    (
+        shiftl(G_MOVEWORD as u32, 24, 8)
+            | shiftl(index as u32, 16, 8)
+            | shiftl(offset as u32, 0, 16),
+        data,
+    )
+}
+
+/// F3DEX2 `gsSPLight(addr, n)`: load light `n` (1-based; lights follow the two LookAt slots).
+pub fn gsp_light(addr: u32, n: u8) -> (u32, u32) {
+    gsp_dma2p(addr, 16, G_MV_LIGHT, (n as u32 + 1) * 24)
+}
+
+/// F3DEX2 `gsSPNumLights(n)`.
+pub fn gsp_numlights(n: u8) -> (u32, u32) {
+    gsp_move_word(G_MW_NUMLIGHT, G_MWO_NUMLIGHT as u16, n as u32 * 24)
+}
+
+/// F3DEX2 `gsSPLightColor(n, col)`: both color words of light `n` (1-based).
+pub fn gsp_lightcolor(n: u8, col: u32) -> [(u32, u32); 2] {
+    let a = (n as u16 - 1) * 0x18;
+    [
+        gsp_move_word(G_MW_LIGHTCOL, a, col),
+        gsp_move_word(G_MW_LIGHTCOL, a + 4, col),
+    ]
+}
+
+/// F3DEX2 `gsSPForceMatrix(addr)`: load the MVP directly, then mark it forced.
+pub fn gsp_forcematrix(addr: u32) -> [(u32, u32); 2] {
+    [
+        gsp_dma2p(addr, 64, G_MV_MATRIX, 0),
+        gsp_move_word(G_MW_FORCEMTX, 0, 0x0001_0000),
+    ]
+}
+
+/// F3DEX2 `gsSPInsertMatrix(where, num)`: write 32 bits into the MVP's fixed-point layout.
+pub fn gsp_insertmatrix(r#where: u16, num: u32) -> (u32, u32) {
+    gsp_move_word(G_MW_MATRIX, r#where, num)
+}
+
+/// F3DZEX2 RDPHALF_1 and BRANCH_W: tail-branch when the vertex's clip W < `w`.
+pub fn gsp_branch_less_w(addr: u32, vtx: u16, w: u32) -> [(u32, u32); 2] {
+    [
+        ((G_RDPHALF_1 as u32) << 24, addr),
+        (
+            shiftl(rsp_f3dzex2::G_BRANCH_W as u32, 24, 8)
+                | shiftl(vtx as u32 * 5, 12, 12)
+                | shiftl(vtx as u32 * 2, 0, 12),
+            w,
+        ),
+    ]
+}
+
 /// F3DEX2 RDPHALF_1 and BRANCH_Z: tail-branch when screen Z <= unsigned 16.16 `z`.
 pub fn gsp_branch_less_z_raw(addr: u32, vtx: u16, z: u32) -> [(u32, u32); 2] {
     [

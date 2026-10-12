@@ -8,7 +8,7 @@ use crate::hle::mem::{GbiDataFormat, Rdram};
 mod detect;
 mod f3d;
 pub(crate) mod f3dex2;
-pub use detect::detect_from_ucode_hash;
+pub use detect::{detect_from_ucode_data, detect_from_ucode_hash};
 
 /// Per-ucode symbolic constants. `Copy`, M-free. Every field except `mtx_param_xor`
 /// is sourced from the selected microcode's constants module; original F3D supplies its
@@ -49,21 +49,42 @@ pub enum GbiUcode {
     F3dex2,
     /// Original F3D microcode.
     F3d,
+    /// F3DZEX2 (`F3DZEX.NoN fifo 2.08I` and relatives), the Zelda microcode: F3DEX2's command
+    /// set plus `G_BRANCH_W`, positional (point) lights, and no near-plane clipping.
+    F3dzex2,
 }
 
 impl GbiUcode {
     pub(crate) fn install<M: Rdram>(self, table: &mut [Handler<M>; 256]) {
         match self {
-            GbiUcode::F3dex2 => f3dex2::install_f3dex2(table),
+            // F3DZEX2's one extra command, G_BRANCH_W, takes G_BRANCH_Z's slot, and branches
+            // are decoded by the walk loop rather than the table.
+            GbiUcode::F3dex2 | GbiUcode::F3dzex2 => f3dex2::install_f3dex2(table),
             GbiUcode::F3d => f3d::install_f3d(table),
         }
     }
 
     pub fn constants(self) -> GbiConstants {
         match self {
-            GbiUcode::F3dex2 => f3dex2::F3DEX2_CONSTS,
+            GbiUcode::F3dex2 | GbiUcode::F3dzex2 => f3dex2::F3DEX2_CONSTS,
             GbiUcode::F3d => f3d::F3D_CONSTS,
         }
+    }
+
+    /// Whether this microcode uses F3DEX2's command encoding (opcodes, RDPHALF branches,
+    /// `G_CULLDL`/`G_BRANCH_Z`).
+    pub fn is_f3dex2_family(self) -> bool {
+        matches!(self, GbiUcode::F3dex2 | GbiUcode::F3dzex2)
+    }
+
+    /// Whether `G_LIGHTING_POSITIONAL` turns lights with a nonzero `kc` into point lights.
+    pub fn supports_point_lighting(self) -> bool {
+        self == GbiUcode::F3dzex2
+    }
+
+    /// Whether the microcode skips near-plane clipping (the `.NoN` variants).
+    pub fn no_near_clipping(self) -> bool {
+        self == GbiUcode::F3dzex2
     }
 }
 
@@ -168,6 +189,24 @@ mod tests {
         for i in 0..256 {
             assert_eq!(built[i] as usize, reference[i] as usize, "slot 0x{i:02X}");
         }
+    }
+
+    #[test]
+    fn f3dzex2_shares_f3dex2_table_and_constants() {
+        let zex = Gbi::<RdramImage<'static>>::new(GbiUcode::F3dzex2, GbiDataFormat::Fixed).table;
+        let ex2 = Gbi::<RdramImage<'static>>::new(GbiUcode::F3dex2, GbiDataFormat::Fixed).table;
+        for i in 0..256 {
+            assert_eq!(zex[i] as usize, ex2[i] as usize, "slot 0x{i:02X}");
+        }
+        assert_eq!(GbiUcode::F3dzex2.constants(), GbiUcode::F3dex2.constants());
+        assert!(GbiUcode::F3dzex2.is_f3dex2_family() && GbiUcode::F3dex2.is_f3dex2_family());
+        assert!(!GbiUcode::F3d.is_f3dex2_family());
+        assert!(
+            GbiUcode::F3dzex2.supports_point_lighting() && GbiUcode::F3dzex2.no_near_clipping()
+        );
+        assert!(
+            !GbiUcode::F3dex2.supports_point_lighting() && !GbiUcode::F3dex2.no_near_clipping()
+        );
     }
 
     #[test]
