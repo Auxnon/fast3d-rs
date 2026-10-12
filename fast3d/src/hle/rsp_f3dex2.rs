@@ -168,6 +168,13 @@ fn move_mem<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
         if light_idx >= 2 {
             let addr = memory_try!(cx, Light, cx.mem.resolve_masked(c.w1_addr));
             memory_try!(cx, Light, cx.rsp.set_light(cx.mem, light_idx - 2, addr));
+            // The DMA length (gsDma2p's size field) bounds which point-light fields change.
+            let len = (c.p0(19, 5) + 1) * 8;
+            memory_try!(
+                cx,
+                Light,
+                cx.rsp.load_point_params(cx.mem, light_idx - 2, addr, len)
+            );
         } else {
             let addr = memory_try!(cx, LookAt, cx.mem.resolve_masked(c.w1_addr));
             memory_try!(cx, LookAt, cx.rsp.set_lookat(cx.mem, light_idx, addr));
@@ -230,8 +237,11 @@ fn move_word<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     } else if ty == cx.gbi_consts.g_mw_numlight as u32 {
         cx.rsp.set_num_lights(c.w1);
     } else if ty == crate::hle::consts::G_MW_LIGHTCOL as u32 {
-        // gSPLightColor: offset / 24 is the light index (0 = first directional light).
-        cx.rsp.set_light_color(c.p0(0, 16) / 24, c.w1);
+        // gSPLightColor: offset / 24 is the light index (0 = first directional light), and
+        // the remainder selects the word within the light.
+        let offset = c.p0(0, 16);
+        cx.rsp
+            .write_light_color_word(offset / 24, (offset % 24) / 4, c.w1);
     } else if ty == crate::hle::consts::G_MW_FORCEMTX as u32 {
         // Zero means the MVP is no longer forced: recompute it from the matrix stacks.
         if c.w1 == 0 {

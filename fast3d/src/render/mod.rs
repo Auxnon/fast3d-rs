@@ -2563,9 +2563,13 @@ pub mod rsp_buffers {
         let v: Vec<GpuLight> = scene
             .lights_table
             .iter()
-            .map(|(d, c)| GpuLight {
-                dir: [d[0], d[1], d[2], 0.0],
-                col: [c[0], c[1], c[2], 0.0],
+            .enumerate()
+            .map(|(i, (d, c))| {
+                let [dw, cw] = scene.lights_params.get(i).copied().unwrap_or([0.0; 2]);
+                GpuLight {
+                    dir: [d[0], d[1], d[2], dw],
+                    col: [c[0], c[1], c[2], cw],
+                }
             })
             .collect();
         if v.is_empty() {

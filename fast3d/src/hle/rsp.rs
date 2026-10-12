@@ -31,6 +31,17 @@ pub struct TextureState {
     pub tc: u16,
 }
 
+/// F3DZEX2 positional-light fields of a light slot (`PointLight_t`: `kc` at byte 3, `kl` at 7,
+/// `s16 pos[3]` at 8, `kq` at 14). A light is a point light when point lighting is enabled
+/// and `kc` is nonzero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PointLightParams {
+    pub kc: u8,
+    pub kl: u8,
+    pub kq: u8,
+    pub pos: [i16; 3],
+}
+
 pub struct Rsp {
     pub(crate) profiling: crate::profiling::Recorder,
     cache_global_index: [u32; RSP_MAX_VERTICES],
@@ -61,6 +72,10 @@ pub struct Rsp {
     // Light state (dir camera-space s8/127, col u8/255).
     pub lights: [([f32; 3], [f32; 3]); 8],
     pub ambient_col: [f32; 3],
+    /// Point-light fields per light slot (F3DZEX2).
+    pub point_params: [PointLightParams; 8],
+    /// Whether the microcode supports point lights (F3DZEX2).
+    pub(crate) point_lighting: bool,
     pub num_dir: u32,
     pub light_version: u64,
     // Dedup state for object-space light prefold.
@@ -115,6 +130,8 @@ impl Default for Rsp {
             modify_unit_texcoord_index: None,
             lights: [([0.0; 3], [0.0; 3]); 8],
             ambient_col: [0.0; 3],
+            point_params: [PointLightParams::default(); 8],
+            point_lighting: false,
             num_dir: 0,
             light_version: 0,
             last_light_key: None,
@@ -309,7 +326,10 @@ impl Rsp {
         let old = self.geom;
         self.geom = (old & off_mask) | on_mask;
         // Bump light_version when G_LIGHTING changes to prevent stale prefold cache.
-        if (old ^ self.geom) & self.consts.g_lighting != 0 {
+        if (old ^ self.geom)
+            & (self.consts.g_lighting | crate::hle::consts::rsp_f3dzex2::G_LIGHTING_POSITIONAL)
+            != 0
+        {
             self.light_version += 1;
         }
     }
@@ -413,16 +433,49 @@ impl Rsp {
             let key = (self.light_version, mv);
             if self.last_light_key != Some(key) {
                 self.cur_light_index = scene.lights_table.len() as u32;
+                // Keep lights_params index-parallel with lights_table.
+                scene
+                    .lights_params
+                    .resize(scene.lights_table.len(), [0.0; 2]);
+                let positional = self.point_lighting
+                    && (self.geom & crate::hle::consts::rsp_f3dzex2::G_LIGHTING_POSITIONAL) != 0;
+                let mut any_point = false;
                 for k in 0..self.num_dir as usize {
                     let (dir, col) = self.lights[k];
+                    let p = self.point_params[k];
+                    if positional && p.kc > 0 {
+                        // Point light: model-space position; the shader computes direction,
+                        // distance and attenuation per vertex.
+                        any_point = true;
+                        let pos = p.pos.map(f32::from);
+                        scene.lights_table.push((pos, col));
+                        scene
+                            .lights_params
+                            .push([f32::from(p.kc), f32::from(p.kl) * 256.0 + f32::from(p.kq)]);
+                        continue;
+                    }
                     let o = mul_col_vec3(mv, dir);
                     let len = (o[0] * o[0] + o[1] * o[1] + o[2] * o[2]).sqrt();
                     let inv = if len > 0.0 { 1.0 / len } else { 0.0 };
                     scene
                         .lights_table
                         .push(([o[0] * inv, o[1] * inv, o[2] * inv], col));
+                    scene.lights_params.push([0.0; 2]);
                 }
                 scene.lights_table.push(([0.0, 0.0, 0.0], self.ambient_col)); // ambient last
+                scene
+                    .lights_params
+                    .push([if any_point { 1.0 } else { 0.0 }, 0.0]);
+                if any_point {
+                    // Point lights need world-space positions: append the modelview rows.
+                    for pair in [[0, 1], [2, 3]] {
+                        let [a, b] = pair.map(|r| mv[r]);
+                        scene
+                            .lights_table
+                            .push(([a[0], a[1], a[2]], [b[0], b[1], b[2]]));
+                        scene.lights_params.push([a[3], b[3]]);
+                    }
+                }
                 self.last_light_key = Some(key);
             }
         }
@@ -867,6 +920,58 @@ impl Rsp {
         }
         self.light_version += 1;
         Ok(())
+    }
+
+    /// F3DEX2-family G_MV_LIGHT: record the point-light fields of a `len`-byte light DMA.
+    /// Like DMEM, fields outside the transferred bytes keep their previous values.
+    pub fn load_point_params<M: Rdram>(
+        &mut self,
+        mem: &M,
+        light_idx: u32,
+        addr: u64,
+        len: u32,
+    ) -> Result<(), MemoryError> {
+        let Some(p) = self.point_params.get_mut(light_idx as usize) else {
+            return Ok(());
+        };
+        let mut next = *p;
+        if len > 3 {
+            next.kc = mem.read_u8(addr + 3)?;
+        }
+        if len > 7 {
+            next.kl = mem.read_u8(addr + 7)?;
+        }
+        for (axis, offset) in [8u64, 10, 12].into_iter().enumerate() {
+            if u64::from(len) >= offset + 2 {
+                next.pos[axis] = mem.read_i16(addr + offset)?;
+            }
+        }
+        if len > 14 {
+            next.kq = mem.read_u8(addr + 14)?;
+        }
+        *p = next;
+        self.light_version += 1;
+        Ok(())
+    }
+
+    /// F3DEX2-family G_MW_LIGHTCOL: write one 32-bit word of a light. Word 0 holds the color
+    /// and `kc`, word 1 the copy color and `kl` (gSPLightColor writes both).
+    pub fn write_light_color_word(&mut self, light_idx: u32, word: u32, value: u32) {
+        match word {
+            0 => {
+                self.set_light_color(light_idx, value);
+                if let Some(p) = self.point_params.get_mut(light_idx as usize) {
+                    p.kc = value as u8;
+                }
+            }
+            1 => {
+                if let Some(p) = self.point_params.get_mut(light_idx as usize) {
+                    p.kl = value as u8;
+                }
+                self.light_version += 1;
+            }
+            _ => {}
+        }
     }
 
     /// F3D G_MW_LIGHTCOL: update one light's color from packed 0xRRGGBBAA while preserving its

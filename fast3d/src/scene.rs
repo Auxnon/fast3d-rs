@@ -153,6 +153,12 @@ pub struct Scene {
     pub light_count: Vec<u32>,
     /// Concatenated object-space light sets: (dir_obj, col); the last entry of each set is ambient.
     pub lights_table: Vec<([f32; 3], [f32; 3])>,
+    /// Extra per-entry values for `lights_table` (the `w` of the GPU entry's two vec4s); missing
+    /// entries are zero. A point light (F3DZEX2) has `[kc, kl * 256 + kq]` with its model-space
+    /// position as the "direction". An ambient entry with `[1, 0]` is followed by two entries
+    /// holding the modelview rows, (row0.xyz, row1.xyz) and (row2.xyz, row3.xyz), whose `w`s
+    /// are the rows' fourth columns.
+    pub lights_params: Vec<[f32; 2]>,
     /// Texgen mode per vertex: 0 = off, 1 = spherical, 2 = linear (gated on G_LIGHTING).
     pub texgen_mode: Vec<u32>,
     /// Fog state at vertex load: 0 = disabled, n + 1 = `fog_table[n]`.

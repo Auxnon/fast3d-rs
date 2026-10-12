@@ -93,11 +93,44 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if lc > 0u {
         let li = v.light_index;
         // Ambient = last light entry
-        var c = lights[li + lc - 1u].col.rgb;
+        let ambient = lights[li + lc - 1u];
+        var c = ambient.col.rgb;
+        // F3DZEX2 point lights: ambient.dir.w = 1 means the modelview rows follow the set.
+        var r0 = vec3<f32>(0.0);
+        var r1 = vec3<f32>(0.0);
+        var r2 = vec3<f32>(0.0);
+        var r3 = vec3<f32>(0.0);
+        if (ambient.dir.w > 0.5) {
+            let a = lights[li + lc];
+            let b = lights[li + lc + 1u];
+            r0 = a.dir.xyz;
+            r1 = a.col.xyz;
+            r2 = b.dir.xyz;
+            r3 = b.col.xyz;
+        }
         // Diffuse accumulation
         for (var k: u32 = 0u; k < lc - 1u; k++) {
-            let nl = max(dot(n, lights[li + k].dir.xyz), 0.0);
-            c += nl * lights[li + k].col.rgb;
+            let l = lights[li + k];
+            if (l.dir.w > 0.0) {
+                // Point light (RT64's computePosLight, which matches the microcode): direction
+                // and distance in model/world space, distance with the RSP's doubled Z term.
+                let world = v.pos.x * r0 + v.pos.y * r1 + v.pos.z * r2 + r3;
+                var d = l.dir.xyz - world;
+                let dist = sqrt(d.x * d.x + d.y * d.y + 2.0 * d.z * d.z);
+                if (dist > 0.0) { d = d / dist; }
+                // Into object space, unnormalized (M·d), like the directional prefold.
+                let local = vec3<f32>(dot(r0, d), dot(r1, d), dot(r2, d));
+                let nl = clamp(dot(n, local) * 4.0, 0.0, 1.0);
+                let kc = l.dir.w;
+                let kl = floor(l.col.w / 256.0);
+                let kq = l.col.w - kl * 256.0;
+                var att = 1.0 / (0.5 + kc / 16.0 + kl * dist / 32768.0 + kq * dist * dist / 524288.0);
+                att = att % (1.0 + 1e-6);
+                c += nl * att * l.col.rgb;
+            } else {
+                let nl = max(dot(n, l.dir.xyz), 0.0);
+                c += nl * l.col.rgb;
+            }
         }
         o.color = vec4<f32>(min(c, vec3<f32>(1.0)), alpha);
     } else {

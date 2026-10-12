@@ -314,6 +314,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
     let gbi = crate::hle::gbi::Gbi::<M>::new(ucode, data_format);
     let mut rsp = crate::hle::rsp::Rsp::new(gbi.consts, gbi.data_format);
     rsp.profiling = profiling;
+    rsp.point_lighting = ucode.supports_point_lighting();
     rdp.color_changed = false;
     rdp.depth_changed = false;
     // Fog factors are RSP task state despite their storage beside the RDP fog color.
