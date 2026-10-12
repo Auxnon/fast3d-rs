@@ -880,7 +880,7 @@ fn depth_test_hides_the_farther_triangle() {
 }
 
 pub(super) struct GpuOut {
-    pos: [f32; 4],
+    pub(super) pos: [f32; 4],
     pub(super) color: [f32; 4],
     pub(super) uv: [f32; 2],
 }

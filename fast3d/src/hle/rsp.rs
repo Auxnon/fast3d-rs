@@ -11,6 +11,8 @@ pub use crate::scene::{
 };
 
 pub const RSP_MAX_VERTICES: usize = 256;
+/// `Scene::modify_flags` bit: the vertex comes from a microcode without near clipping.
+pub const NO_NEAR_CLIP: u32 = 4;
 /// F3DEX2 max directional lights.
 pub const RSP_MAX_LIGHTS: u32 = 7;
 pub const DEPTH_RANGE: f32 = 1024.0;
@@ -76,6 +78,8 @@ pub struct Rsp {
     pub point_params: [PointLightParams; 8],
     /// Whether the microcode supports point lights (F3DZEX2).
     pub(crate) point_lighting: bool,
+    /// Whether the microcode skips near-plane clipping (`.NoN`); marks loaded vertices.
+    pub(crate) no_near_clip: bool,
     pub num_dir: u32,
     pub light_version: u64,
     // Dedup state for object-space light prefold.
@@ -132,6 +136,7 @@ impl Default for Rsp {
             ambient_col: [0.0; 3],
             point_params: [PointLightParams::default(); 8],
             point_lighting: false,
+            no_near_clip: false,
             num_dir: 0,
             light_version: 0,
             last_light_key: None,
@@ -546,7 +551,9 @@ impl Rsp {
             });
             self.clip_w[slot] = self.clip_codes[slot].map(|_| clip[3]);
             scene.raw_pos.push(v.pos);
-            scene.modify_flags.push(0);
+            scene
+                .modify_flags
+                .push(if self.no_near_clip { NO_NEAR_CLIP } else { 0 });
             scene.modify_screen.push([0.0; 4]);
             scene.mtx_index.push(self.cur_mvp_index);
             scene.viewport_index.push(self.cur_viewport_index);

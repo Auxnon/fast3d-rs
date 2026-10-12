@@ -71,6 +71,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if ((v.modify_flags & 2u) != 0u) {
         o.pos.z = v.modify_screen.z * w;
     }
+    // No near clipping (.NoN microcodes): keep geometry in front of the near plane by clamping
+    // depth to it instead of clipping. RT64 clamps per fragment (depth clip off); clamping per
+    // vertex differs only inside triangles that cross the near plane. Far clipping is unchanged.
+    if ((v.modify_flags & 4u) != 0u) {
+        o.pos.z = max(o.pos.z, 0.0);
+    }
     // Prefolded scale (f64-computed CPU-side): one f32 multiply per axis (spec §2 Precision).
     o.uv = vec2<f32>(v.st.x * tc.scale_s, v.st.y * tc.scale_t);
 

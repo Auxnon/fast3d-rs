@@ -120,7 +120,8 @@ pub struct Scene {
     // --- Compute-RSP SoA inputs (consumed by the GPU RSP-process pass) ---
     /// Object-space position per output vertex (untransformed).
     pub raw_pos: Vec<[f32; 3]>,
-    /// gSPModifyVertex screen override bits, index-parallel to `raw_pos`: bit 0 = XY, bit 1 = Z.
+    /// Per-vertex flags, index-parallel to `raw_pos`: bit 0 = gSPModifyVertex XY override,
+    /// bit 1 = Z override, bit 2 = no near clipping (`NO_NEAR_CLIP`, `.NoN` microcodes).
     pub modify_flags: Vec<u32>,
     /// gSPModifyVertex final screen target `[x_px, y_px, z_ndc, unused]`, index-parallel to `raw_pos`.
     pub modify_screen: Vec<[f32; 4]>,
