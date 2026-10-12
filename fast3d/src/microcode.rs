@@ -15,6 +15,10 @@ pub enum Microcode {
     /// Majora's Mask and Ocarina of Time. F3DEX2 plus `G_BRANCH_W`, point lights and no
     /// near-plane clipping.
     F3dzex2,
+    /// S2DEX2 (`S2DEX  fifo 2.08` and relatives), the 2D background/sprite microcode paired
+    /// with F3DEX2. Display lists usually switch to it with `gSPLoadUcodeL`; its object
+    /// commands aren't drawn yet.
+    S2dex2,
 }
 
 impl From<Microcode> for GbiUcode {
@@ -23,6 +27,7 @@ impl From<Microcode> for GbiUcode {
             Microcode::F3dex2 => GbiUcode::F3dex2,
             Microcode::F3d => GbiUcode::F3d,
             Microcode::F3dzex2 => GbiUcode::F3dzex2,
+            Microcode::S2dex2 => GbiUcode::S2dex2,
         }
     }
 }
@@ -33,6 +38,7 @@ impl From<GbiUcode> for Microcode {
             GbiUcode::F3dex2 => Microcode::F3dex2,
             GbiUcode::F3d => Microcode::F3d,
             GbiUcode::F3dzex2 => Microcode::F3dzex2,
+            GbiUcode::S2dex2 => Microcode::S2dex2,
         }
     }
 }

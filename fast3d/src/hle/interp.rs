@@ -229,6 +229,8 @@ const DISPATCH_CAP: u64 = 1 << 20;
 
 enum Control {
     Continue,
+    /// G_LOAD_UCODE to a recognized microcode.
+    SwitchMicrocode(crate::hle::gbi::GbiUcode),
     Call(u64),
     Branch(u64),
     Return,
@@ -311,7 +313,9 @@ pub(crate) fn interpret_profiled<M: Rdram>(
 ) -> InterpResult {
     rdp.tmem_bank.profiling = profiling.clone();
     let mut mem = mem;
-    let gbi = crate::hle::gbi::Gbi::<M>::new(ucode, data_format);
+    // G_LOAD_UCODE can switch microcodes mid-list.
+    let mut ucode = ucode;
+    let mut gbi = crate::hle::gbi::Gbi::<M>::new(ucode, data_format);
     let mut rsp = crate::hle::rsp::Rsp::new(gbi.consts, gbi.data_format);
     rsp.profiling = profiling;
     rsp.point_lighting = ucode.supports_point_lighting();
@@ -464,16 +468,31 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                         Control::Abort
                     }
                 }
-            } else if ucode.is_f3dex2_family() && op == crate::hle::consts::G_LOAD_UCODE {
-                diags.push(Diagnostic {
-                    at: pc,
-                    kind: DiagKind::UnsupportedMicrocodeLoad {
-                        w0: c.w0,
-                        w1: c.w1_addr,
-                        data_address: rdphalf_1,
-                    },
-                });
-                Control::Abort
+            } else if ucode.rdphalf1_is_data() && op == crate::hle::consts::G_LOAD_UCODE {
+                // gSPLoadUcodeL: RDPHALF_1 holds the data segment, w0's low 16 bits its size
+                // minus one. Identify the new microcode by its version string.
+                let size = (c.p0(0, 16) as usize + 1).min(0x1000);
+                let detected = rdphalf_1
+                    .and_then(|data| mem.resolve_masked(data).ok())
+                    .and_then(|data| {
+                        mem.read_bytes(data, size)
+                            .ok()
+                            .and_then(|bytes| crate::hle::gbi::detect_from_ucode_data(&bytes))
+                    });
+                match detected {
+                    Some(next) => Control::SwitchMicrocode(next),
+                    None => {
+                        diags.push(Diagnostic {
+                            at: pc,
+                            kind: DiagKind::UnsupportedMicrocodeLoad {
+                                w0: c.w0,
+                                w1: c.w1_addr,
+                                data_address: rdphalf_1,
+                            },
+                        });
+                        Control::Abort
+                    }
+                }
             } else {
                 Control::Continue
             };
@@ -509,9 +528,16 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     rejected = true;
                     break 'dispatch;
                 }
+                Control::SwitchMicrocode(next) => {
+                    ucode = next;
+                    gbi = crate::hle::gbi::Gbi::<M>::new(next, gbi.data_format);
+                    rsp.switch_microcode(next);
+                    pc = walk_try!(Command, checked_span(pc, stride));
+                    break 'dispatch;
+                }
                 Control::Continue => {}
             }
-            if ucode.is_f3dex2_family() && op == crate::hle::consts::G_RDPHALF_1 {
+            if ucode.rdphalf1_is_data() && op == crate::hle::consts::G_RDPHALF_1 {
                 rdphalf_1 = Some(c.w1_addr);
                 pc = walk_try!(Command, checked_span(pc, stride));
                 break 'dispatch;

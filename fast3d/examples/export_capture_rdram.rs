@@ -57,6 +57,7 @@ mod native {
                 Microcode::F3d => "f3d",
                 Microcode::F3dex2 => "f3dex2",
                 Microcode::F3dzex2 => "f3dzex2",
+                Microcode::S2dex2 => "s2dex2",
             };
             write!(
                 tasks,

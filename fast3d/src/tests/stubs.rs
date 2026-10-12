@@ -272,10 +272,16 @@ impl crate::Rdram for CommandMemory<'_> {
     }
     fn read_bytes(
         &self,
-        _: u64,
-        _: usize,
+        address: u64,
+        length: usize,
     ) -> Result<std::borrow::Cow<'_, [u8]>, crate::MemoryError> {
-        panic!("unexpected data read")
+        // G_LOAD_UCODE reads the data segment to identify the microcode. This memory has
+        // none, so the load stays unsupported.
+        Err(crate::MemoryError {
+            address,
+            length: length as u64,
+            kind: crate::MemoryErrorKind::Unavailable,
+        })
     }
     fn read_matrix(
         &self,

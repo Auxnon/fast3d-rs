@@ -238,6 +238,23 @@ pub mod rsp_f3dex2 {
     pub const G_MW_FORCEMTX: u8 = 0x0C;
 }
 
+/// S2DEX2 (the 2D sprite/background microcode paired with F3DEX2): object commands. DL,
+/// ENDDL, MOVEWORD, othermode, RDPHALF and LOAD_UCODE share F3DEX2's opcodes.
+pub mod rsp_s2dex2 {
+    pub const G_OBJ_RECTANGLE: u8 = 0x01;
+    pub const G_OBJ_SPRITE: u8 = 0x02;
+    pub const G_SELECT_DL: u8 = 0x04;
+    pub const G_OBJ_LOADTXTR: u8 = 0x05;
+    pub const G_OBJ_LDTX_SPRITE: u8 = 0x06;
+    pub const G_OBJ_LDTX_RECT: u8 = 0x07;
+    pub const G_OBJ_LDTX_RECT_R: u8 = 0x08;
+    pub const G_BG_1CYC: u8 = 0x09;
+    pub const G_BG_COPY: u8 = 0x0A;
+    pub const G_OBJ_RENDERMODE: u8 = 0x0B;
+    pub const G_OBJ_RECTANGLE_R: u8 = 0xDA;
+    pub const G_OBJ_MOVEMEM: u8 = 0xDC;
+}
+
 /// F3DZEX2 (the Zelda microcode): F3DEX2 plus these.
 pub mod rsp_f3dzex2 {
     /// Branch if a vertex's clip-space W is below a threshold (gSPBranchLessW); takes

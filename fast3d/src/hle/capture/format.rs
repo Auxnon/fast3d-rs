@@ -116,6 +116,7 @@ impl Fixture {
                 Microcode::F3dex2 => 0,
                 Microcode::F3d => 1,
                 Microcode::F3dzex2 => 2,
+                Microcode::S2dex2 => 3,
             });
             w.u32(match task.data_format {
                 DataFormat::Fixed => 0,
@@ -254,6 +255,7 @@ impl Fixture {
                 0 => Microcode::F3dex2,
                 1 => Microcode::F3d,
                 2 => Microcode::F3dzex2,
+                3 => Microcode::S2dex2,
                 _ => return Err(invalid("microcode")),
             };
             let data_format = match r.u32()? {

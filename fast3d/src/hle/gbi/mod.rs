@@ -52,6 +52,9 @@ pub enum GbiUcode {
     /// F3DZEX2 (`F3DZEX.NoN fifo 2.08I` and relatives), the Zelda microcode: F3DEX2's command
     /// set plus `G_BRANCH_W`, positional (point) lights, and no near-plane clipping.
     F3dzex2,
+    /// S2DEX2 (`S2DEX  fifo 2.08` and relatives): 2D backgrounds and sprites, usually loaded
+    /// mid-list with `gSPLoadUcodeL`. Object commands aren't drawn yet.
+    S2dex2,
 }
 
 impl GbiUcode {
@@ -61,12 +64,17 @@ impl GbiUcode {
             // are decoded by the walk loop rather than the table.
             GbiUcode::F3dex2 | GbiUcode::F3dzex2 => f3dex2::install_f3dex2(table),
             GbiUcode::F3d => f3d::install_f3d(table),
+            GbiUcode::S2dex2 => {
+                crate::hle::rdp::install_defaults(table);
+                crate::hle::rsp_f3dex2::install_s2dex2(table);
+            }
         }
     }
 
     pub fn constants(self) -> GbiConstants {
         match self {
-            GbiUcode::F3dex2 | GbiUcode::F3dzex2 => f3dex2::F3DEX2_CONSTS,
+            // S2DEX2 shares F3DEX2's DL, MOVEWORD and othermode encodings.
+            GbiUcode::F3dex2 | GbiUcode::F3dzex2 | GbiUcode::S2dex2 => f3dex2::F3DEX2_CONSTS,
             GbiUcode::F3d => f3d::F3D_CONSTS,
         }
     }
@@ -75,6 +83,15 @@ impl GbiUcode {
     /// `G_CULLDL`/`G_BRANCH_Z`).
     pub fn is_f3dex2_family(self) -> bool {
         matches!(self, GbiUcode::F3dex2 | GbiUcode::F3dzex2)
+    }
+
+    /// Whether `G_RDPHALF_1` carries a data word for the next command (branch targets,
+    /// `G_LOAD_UCODE`'s data segment), as in F3DEX2 and S2DEX2.
+    pub fn rdphalf1_is_data(self) -> bool {
+        matches!(
+            self,
+            GbiUcode::F3dex2 | GbiUcode::F3dzex2 | GbiUcode::S2dex2
+        )
     }
 
     /// Whether `G_LIGHTING_POSITIONAL` turns lights with a nonzero `kc` into point lights.

@@ -156,13 +156,13 @@ fn bytes(words: impl IntoIterator<Item = (u32, u32)>) -> Vec<u8> {
 
 fn end(ucode: Microcode) -> (u32, u32) {
     match ucode {
-        Microcode::F3dex2 | Microcode::F3dzex2 => gsp_enddl(),
+        Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => gsp_enddl(),
         Microcode::F3d => gsp_enddl_f3d(),
     }
 }
 fn dl(ucode: Microcode, target: u32, branch: bool) -> (u32, u32) {
     let opcode = match ucode {
-        Microcode::F3dex2 | Microcode::F3dzex2 => 0xde,
+        Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => 0xde,
         Microcode::F3d => 0x06,
     };
     ((opcode << 24) | (u32::from(branch) << 16), target)
@@ -685,7 +685,7 @@ fn triangles_report_index_growth_even_when_runs_coalesce() {
                     }
                     if cull != 0 {
                         let mask = match ucode {
-                            Microcode::F3dex2 | Microcode::F3dzex2 => {
+                            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
                                 if cull == 1 {
                                     0x200
                                 } else {
@@ -701,31 +701,35 @@ fn triangles_report_index_growth_even_when_runs_coalesce() {
                             }
                         };
                         commands.push(match ucode {
-                            Microcode::F3dex2 | Microcode::F3dzex2 => gsp_set_geometrymode(mask),
+                            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                                gsp_set_geometrymode(mask)
+                            }
                             Microcode::F3d => gsp_set_geometrymode_f3d(mask),
                         });
                     }
                     commands.push(gdp_set_combine_lerp(cc, ca, cc, ca));
                     commands.push(match ucode {
-                        Microcode::F3dex2 | Microcode::F3dzex2 => {
+                        Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
                             gdp_set_render_mode(G_RM_OPA_SURF, G_RM_OPA_SURF2)
                         }
                         Microcode::F3d => gdp_set_render_mode_f3d(G_RM_OPA_SURF, G_RM_OPA_SURF2),
                     });
                     commands.push(match ucode {
-                        Microcode::F3dex2 | Microcode::F3dzex2 => gsp_vertex(0, 4, 0x100),
+                        Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                            gsp_vertex(0, 4, 0x100)
+                        }
                         Microcode::F3d => gsp_vertex_f3d(0, 4, 0x100),
                     });
                     if doubled {
                         commands.push(match ucode {
-                            Microcode::F3dex2 | Microcode::F3dzex2 => {
+                            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
                                 gsp_2triangles(0, 1, 2, 0, 2, 3)
                             }
                             Microcode::F3d => gsp_quad_f3d(0, 1, 2, 3),
                         });
                     } else {
                         commands.extend(match ucode {
-                            Microcode::F3dex2 | Microcode::F3dzex2 => {
+                            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
                                 [gsp_1triangle(0, 1, 2), gsp_1triangle(0, 2, 3)]
                             }
                             Microcode::F3d => {
@@ -1049,11 +1053,15 @@ fn observation_does_not_add_reads_or_truncate_operands() {
 fn post_command_projection_preserves_values_and_owned_snapshots() {
     for ucode in [Microcode::F3dex2, Microcode::F3d] {
         let geom = match ucode {
-            Microcode::F3dex2 | Microcode::F3dzex2 => gsp_set_geometrymode(0x200),
+            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                gsp_set_geometrymode(0x200)
+            }
             Microcode::F3d => gsp_set_geometrymode_f3d(0x200),
         };
         let texture = match ucode {
-            Microcode::F3dex2 | Microcode::F3dzex2 => gsp_texture(123, 456, 2, 3, true),
+            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                gsp_texture(123, 456, 2, 3, true)
+            }
             Microcode::F3d => gsp_texture_f3d(123, 456, 2, 3, true),
         };
         let commands = [
@@ -1084,7 +1092,9 @@ fn post_command_projection_preserves_values_and_owned_snapshots() {
             &mut |s: WalkStep<'_>| {
                 if s.seq == 0 {
                     let name = match ucode {
-                        Microcode::F3dex2 | Microcode::F3dzex2 => "G_CULL_FRONT",
+                        Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                            "G_CULL_FRONT"
+                        }
                         Microcode::F3d => "G_SHADING_SMOOTH",
                     };
                     assert!(s
@@ -1266,11 +1276,15 @@ fn rejected_draws_and_final_warnings_have_distinct_diagnostic_slices() {
                 gdp_set_combine_lerp(cc, ca, cc, ca)
             };
             let vtx = match ucode {
-                Microcode::F3dex2 | Microcode::F3dzex2 => gsp_vertex(0, 3, 0x100),
+                Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                    gsp_vertex(0, 3, 0x100)
+                }
                 Microcode::F3d => gsp_vertex_f3d(0, 3, 0x100),
             };
             let tri = match ucode {
-                Microcode::F3dex2 | Microcode::F3dzex2 => gsp_1triangle(0, 1, 2),
+                Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                    gsp_1triangle(0, 1, 2)
+                }
                 Microcode::F3d => gsp_1triangle_f3d(0, 1, 2),
             };
             let mut memory = bytes([combine, vtx, tri, end(ucode)]);
@@ -1396,7 +1410,9 @@ fn cancellation_on_call_never_fetches_target() {
 fn load_tile_and_f3d_only_geometry_flags_are_projected() {
     for ucode in [Microcode::F3dex2, Microcode::F3d] {
         let geom = match ucode {
-            Microcode::F3dex2 | Microcode::F3dzex2 => gsp_set_geometrymode(0x80000200),
+            Microcode::F3dex2 | Microcode::F3dzex2 | Microcode::S2dex2 => {
+                gsp_set_geometrymode(0x80000200)
+            }
             Microcode::F3d => gsp_set_geometrymode_f3d(0x80400202),
         };
         let mut memory = bytes([

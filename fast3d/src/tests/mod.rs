@@ -45,6 +45,7 @@ mod interp_tests;
 mod lookat_roundtrip;
 mod math_rdram;
 mod matrix_stack;
+mod microcode_switch;
 mod near_clip;
 mod point_lighting;
 mod prim_depth;

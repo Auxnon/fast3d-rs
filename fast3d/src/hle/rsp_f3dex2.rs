@@ -31,6 +31,42 @@ pub(crate) fn install_overrides<M: Rdram>(t: &mut [Handler<M>; 256]) {
     }
 }
 
+/// S2DEX2: F3DEX2's shared commands, plus the object commands (not drawn yet).
+pub(crate) fn install_s2dex2<M: Rdram>(t: &mut [Handler<M>; 256]) {
+    use crate::hle::consts::rsp_s2dex2::*;
+    t[G_SETOTHERMODE_H as usize] = set_other_mode_h::<M>;
+    t[G_SETOTHERMODE_L as usize] = set_other_mode_l::<M>;
+    t[G_SETTIMG as usize] = set_texture_image::<M>;
+    t[G_MOVEWORD as usize] = move_word::<M>;
+    t[G_SPNOOP as usize] = spnoop::<M>;
+    t[G_OBJ_RENDERMODE as usize] = obj_render_mode::<M>;
+    for opcode in [
+        G_OBJ_RECTANGLE,
+        G_OBJ_SPRITE,
+        G_SELECT_DL,
+        G_OBJ_LOADTXTR,
+        G_OBJ_LDTX_SPRITE,
+        G_OBJ_LDTX_RECT,
+        G_OBJ_LDTX_RECT_R,
+        G_BG_1CYC,
+        G_BG_COPY,
+        G_OBJ_RECTANGLE_R,
+        G_OBJ_MOVEMEM,
+    ] {
+        t[opcode as usize] = unsupported_object::<M>;
+    }
+}
+
+fn obj_render_mode<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+    cx.rsp.obj_render_mode = c.w1;
+}
+
+/// An S2DEX2 object command that fast3d doesn't draw yet: reported once, counted as dropped.
+fn unsupported_object<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+    *cx.dropped_runs += 1;
+    unsupported(c, cx);
+}
+
 fn spnoop<M: Rdram>(_: &Cmd, _: &mut Ctx<M>) {}
 
 fn unsupported<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {

@@ -5,7 +5,7 @@ use super::GbiUcode;
 /// the version string Nintendo's microcodes embed, e.g.
 /// `RSP Gfx ucode F3DZEX.NoN fifo 2.08I Yoshitaka Yasumoto/Kawasedo 1999.`
 ///
-/// Returns `None` for microcodes fast3d doesn't implement (F3DEX 1.x, S2DEX, L3DEX, ...).
+/// Returns `None` for microcodes fast3d doesn't implement (F3DEX 1.x, S2DEX 1.x, L3DEX, ...).
 /// `.NoN` F3DEX2 builds are reported as `F3dex2`, which near-clips; only F3DZEX2 models NoN.
 pub fn detect_from_ucode_data(data: &[u8]) -> Option<GbiUcode> {
     if find(data, b"RSP SW Version: 2.0").is_some() {
@@ -25,6 +25,7 @@ pub fn detect_from_ucode_data(data: &[u8]) -> Option<GbiUcode> {
     match name {
         b"F3DZEX" if gen2 => Some(GbiUcode::F3dzex2),
         b"F3DEX" if gen2 => Some(GbiUcode::F3dex2),
+        b"S2DEX" if gen2 => Some(GbiUcode::S2dex2),
         _ => None,
     }
 }
@@ -80,6 +81,11 @@ mod tests {
         );
         assert_eq!(
             with("RSP Gfx ucode S2DEX  fifo 2.08  Yoshitaka Yasumoto 1999."),
+            Some(GbiUcode::S2dex2)
+        );
+        // S2DEX 1.x (paired with F3DEX 1.x) isn't implemented.
+        assert_eq!(
+            with("RSP Gfx ucode S2DEX       1.07 Yoshitaka Yasumoto 1998."),
             None
         );
         assert_eq!(

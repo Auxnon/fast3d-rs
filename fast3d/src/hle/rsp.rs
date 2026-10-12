@@ -80,6 +80,8 @@ pub struct Rsp {
     pub(crate) point_lighting: bool,
     /// Whether the microcode skips near-plane clipping (`.NoN`); marks loaded vertices.
     pub(crate) no_near_clip: bool,
+    /// S2DEX2 `G_OBJ_RENDERMODE` flags.
+    pub obj_render_mode: u32,
     pub num_dir: u32,
     pub light_version: u64,
     // Dedup state for object-space light prefold.
@@ -137,6 +139,7 @@ impl Default for Rsp {
             point_params: [PointLightParams::default(); 8],
             point_lighting: false,
             no_near_clip: false,
+            obj_render_mode: 0,
             num_dir: 0,
             light_version: 0,
             last_light_key: None,
@@ -273,6 +276,18 @@ impl Rsp {
         }
         self.cur_mvp_index = (self.mvp_table.len() - 1) as u32;
         Ok(())
+    }
+
+    /// Switch microcodes mid-list (G_LOAD_UCODE). Matrices, lights and vertices stay, as in
+    /// RT64; loading S2DEX2 resets its object render mode.
+    pub(crate) fn switch_microcode(&mut self, ucode: crate::hle::gbi::GbiUcode) {
+        self.consts = ucode.constants();
+        self.point_lighting = ucode.supports_point_lighting();
+        self.no_near_clip = ucode.no_near_clipping();
+        if ucode == crate::hle::gbi::GbiUcode::S2dex2 {
+            self.obj_render_mode = 0;
+        }
+        self.light_version += 1;
     }
 
     /// G_MW_FORCEMTX 0: drop a forced MVP and use the matrix stacks again.
