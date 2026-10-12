@@ -1035,7 +1035,7 @@ pub fn interpret_rdram(bytes: &[u8], entry_addr: u32) -> InterpResult {
 /// Records a texture rectangle (G_TEXRECT/G_TEXRECTFLIP or the extended
 /// gEXTextureRectangle). Returns the observer emission, or `None` when it's dropped.
 #[allow(clippy::too_many_arguments)]
-fn record_texrect(
+pub(crate) fn record_texrect(
     rsp: &mut crate::hle::rsp::Rsp,
     rdp: &mut crate::hle::rdp::Rdp,
     scene: &mut Scene,

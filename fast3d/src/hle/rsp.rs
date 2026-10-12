@@ -82,6 +82,10 @@ pub struct Rsp {
     pub(crate) no_near_clip: bool,
     /// S2DEX2 `G_OBJ_RENDERMODE` flags.
     pub obj_render_mode: u32,
+    /// S2DEX2's DMEM buffer for object structs (stale bytes persist between loads).
+    pub(crate) s2d_struct: [u8; 256],
+    /// S2DEX2 texture-load statuses by `sid / 4` (`gSPObjLoadTxtr` caching).
+    pub(crate) s2d_statuses: [u32; 4],
     /// RT64 `gEXForceBranch`: conditional branches (`G_BRANCH_Z`/`W`) are always taken.
     pub(crate) force_branch: bool,
     pub num_dir: u32,
@@ -142,6 +146,8 @@ impl Default for Rsp {
             point_lighting: false,
             no_near_clip: false,
             obj_render_mode: 0,
+            s2d_struct: [0; 256],
+            s2d_statuses: [0; 4],
             force_branch: false,
             num_dir: 0,
             light_version: 0,
@@ -316,6 +322,8 @@ impl Rsp {
         self.no_near_clip = ucode.no_near_clipping();
         if ucode == crate::hle::gbi::GbiUcode::S2dex2 {
             self.obj_render_mode = 0;
+            self.s2d_struct = [0; 256];
+            self.s2d_statuses = [0; 4];
         }
         self.light_version += 1;
     }

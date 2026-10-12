@@ -80,9 +80,9 @@ fn switches_to_s2dex2_and_back() {
         let f3dzex = data_segment(b, F3DZEX_DATA);
         let mut commands = vec![gdp_set_color_image(0, 2, 320, 0x10_0000)];
         commands.extend(gsp_load_ucode(0x1000, s2dex, 0x800));
-        // S2DEX2 commands: render mode is tracked, BG_COPY isn't drawn yet.
+        // S2DEX2 commands: render mode is tracked, sprites aren't drawn.
         commands.push(((rsp_s2dex2::G_OBJ_RENDERMODE as u32) << 24, 0x08));
-        commands.push(((rsp_s2dex2::G_BG_COPY as u32) << 24, 0));
+        commands.push(((rsp_s2dex2::G_OBJ_SPRITE as u32) << 24, 0));
         commands.extend(gsp_load_ucode(0x2000, f3dzex, 0x800));
         commands.extend(triangle(b));
         commands.push(END);
@@ -95,7 +95,7 @@ fn switches_to_s2dex2_and_back() {
     assert!(
         r.diags.iter().any(|d| matches!(
             d.kind,
-            DiagKind::UnsupportedCommand { opcode, .. } if opcode == rsp_s2dex2::G_BG_COPY
+            DiagKind::UnsupportedCommand { opcode, .. } if opcode == rsp_s2dex2::G_OBJ_SPRITE
         )),
         "{:?}",
         r.diags

@@ -56,6 +56,7 @@ mod renderer_present;
 mod renderer_process_dl;
 mod rsp_tests;
 mod run_split;
+mod s2dex;
 mod scene_walk;
 #[cfg(feature = "capture")]
 mod sm64_corpus;

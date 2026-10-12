@@ -15,6 +15,7 @@ pub mod rdp;
 pub mod rsp;
 pub mod rsp_f3d;
 pub mod rsp_f3dex2;
+pub(crate) mod s2dex;
 pub mod texdec;
 pub mod texture_request;
 pub mod tile_sampling;

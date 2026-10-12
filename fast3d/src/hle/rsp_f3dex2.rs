@@ -31,7 +31,7 @@ pub(crate) fn install_overrides<M: Rdram>(t: &mut [Handler<M>; 256]) {
     }
 }
 
-/// S2DEX2: F3DEX2's shared commands, plus the object commands (not drawn yet).
+/// S2DEX2: F3DEX2's shared commands, plus the object commands.
 pub(crate) fn install_s2dex2<M: Rdram>(t: &mut [Handler<M>; 256]) {
     use crate::hle::consts::rsp_s2dex2::*;
     t[G_SETOTHERMODE_H as usize] = set_other_mode_h::<M>;
@@ -40,16 +40,17 @@ pub(crate) fn install_s2dex2<M: Rdram>(t: &mut [Handler<M>; 256]) {
     t[G_MOVEWORD as usize] = move_word::<M>;
     t[G_SPNOOP as usize] = spnoop::<M>;
     t[G_OBJ_RENDERMODE as usize] = obj_render_mode::<M>;
+    t[G_BG_COPY as usize] = crate::hle::s2dex::bg_copy::<M>;
+    t[G_BG_1CYC as usize] = crate::hle::s2dex::bg_1cyc::<M>;
+    t[G_OBJ_LOADTXTR as usize] = crate::hle::s2dex::obj_load_txtr::<M>;
+    for opcode in [G_OBJ_LDTX_SPRITE, G_OBJ_LDTX_RECT, G_OBJ_LDTX_RECT_R] {
+        t[opcode as usize] = crate::hle::s2dex::obj_load_txtr_and_draw::<M>;
+    }
+    // Sprite and object-rectangle drawing isn't implemented (nor in RT64).
     for opcode in [
         G_OBJ_RECTANGLE,
         G_OBJ_SPRITE,
         G_SELECT_DL,
-        G_OBJ_LOADTXTR,
-        G_OBJ_LDTX_SPRITE,
-        G_OBJ_LDTX_RECT,
-        G_OBJ_LDTX_RECT_R,
-        G_BG_1CYC,
-        G_BG_COPY,
         G_OBJ_RECTANGLE_R,
         G_OBJ_MOVEMEM,
     ] {
@@ -250,7 +251,7 @@ fn set_other_mode_l<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
         .set_other_mode_l(shift_field, len_field, c.w1, cx.rdp);
 }
 
-fn set_texture_image<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn set_texture_image<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     let fmt = c.p0(21, 3) as u8;
     let siz = c.p0(19, 2) as u8;
     // The width field is (actual_width - 1), but tex_image stores the field value directly.

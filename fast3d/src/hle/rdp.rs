@@ -227,7 +227,7 @@ fn set_blend_color<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     cx.rsp.material_dirty = true;
 }
 
-fn set_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn set_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     let tile = c.p1(24, 3) as usize;
     let t = &mut cx.rdp.tiles[tile];
     t.siz = c.p0(19, 2) as u8;
@@ -244,7 +244,7 @@ fn set_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     cx.rsp.material_dirty = true;
 }
 
-fn set_tile_size<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn set_tile_size<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     let tile = c.p1(24, 3) as usize;
     let t = &mut cx.rdp.tiles[tile];
     t.uls = c.p0(12, 12) as u16;
@@ -271,7 +271,7 @@ fn framebuffer_load<M: Rdram>(cx: &mut Ctx<M>, address: u64, length: usize) -> O
     Some(diagnostic)
 }
 
-fn load_block<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn load_block<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     // contiguous, linear: N64 RDP hardware word count.
     let (_fmt, siz, _w, addr) = cx.rdp.tex_image;
     let tile_idx = c.p1(24, 3) as usize; // load tile (7 for a well-formed LoadTextureBlock)
@@ -301,7 +301,7 @@ fn load_block<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     cx.rsp.material_dirty = true;
 }
 
-fn load_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn load_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     // G_LOADTILE (0xF4): row-by-row load of a strided sub-rectangle of the current tex_image into
     // TMEM. Params (w0: uls/ult, w1: tile/lrs/lrt) are 10.2
     // fixed point; integer texel coords are the fields >> 2.
@@ -368,7 +368,7 @@ fn load_tile<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     cx.rsp.material_dirty = true;
 }
 
-fn load_tlut<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
+pub(crate) fn load_tlut<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
     if c.w0 & 0x00ff_ffff != 0 || c.w1 & 0x3fff != 0 {
         cx.diags.push(Diagnostic {
             at: cx.pc,
