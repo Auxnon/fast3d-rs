@@ -1,5 +1,5 @@
 use super::dl_builder::DlBuilder;
-use crate::diag::{ConvertInput, DiagKind, Diagnostic, KeyInput, Severity};
+use crate::diag::{ConvertInput, DiagKind, Diagnostic, Severity};
 use crate::hle::interpret_rdram;
 use n64_gbi::encode::*;
 
@@ -287,15 +287,21 @@ fn assert_rejected(cycle_type: u32, command: (u32, u32), kind: DiagKind) {
     }
 }
 
+/// KEY_CENTER (B) and KEY_SCALE (C) are combiner inputs carrying the key registers;
+/// Gauntlet Legends uses KEY_SCALE 0xFF as a multiply by one.
 #[test]
-fn key_selector_active_cycle_is_rejected() {
+fn key_selector_active_cycle_is_accepted() {
     for (cycle_type, cycle) in [(0, 1), (1, 0), (1, 1)] {
-        for (multiply, selector) in [(false, KeyInput::Center), (true, KeyInput::Scale)] {
-            assert_rejected(
-                cycle_type,
-                combine(Some((cycle, multiply, 6))),
-                DiagKind::UnsupportedKeyInput { selector },
-            );
+        for multiply in [false, true] {
+            for draw in DRAWS {
+                let (dl, mut commands) = setup(cycle_type, true);
+                commands.push(combine(Some((cycle, multiply, 6))));
+                commands.extend(draw.commands());
+                let (result, _) = finish(dl, commands);
+                assert!(result.diags.is_empty(), "{draw:?}: {:?}", result.diags);
+                assert_eq!(result.dropped_runs, 0);
+                assert_eq!(result.scene.materials.len(), 1, "{draw:?}");
+            }
         }
     }
 }
@@ -377,20 +383,6 @@ fn inactive_cycle_selector_does_not_reject() {
 fn rejected_register_inputs_recover_after_cached_draw() {
     for cycle in [0, 1] {
         for (command, reset, kind) in [
-            (
-                combine(Some((1, false, 6))),
-                combine(None),
-                DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Center,
-                },
-            ),
-            (
-                combine(Some((1, true, 6))),
-                combine(None),
-                DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Scale,
-                },
-            ),
             (
                 combine(Some((1, false, 7))),
                 combine(None),
@@ -725,8 +717,6 @@ fn unsupported_register_inputs_render_no_pixels() {
         for (cycle_type, cycle) in [(0, 1), (1, 0), (1, 1)] {
             for draw in DRAWS {
                 for command in [
-                    combine(Some((cycle, false, 6))),
-                    combine(Some((cycle, true, 6))),
                     combine(Some((cycle, false, 7))),
                     combine(Some((cycle, true, 15))),
                     gdp_set_other_mode_h(9, 3, 0),
@@ -845,18 +835,8 @@ fn fill_rect_only_adds_rejection_for_convert_key_inputs() {
     for cycle_type in [0, 1] {
         for (command, expected) in [
             (combine(None), None),
-            (
-                combine(Some((1, false, 6))),
-                Some(DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Center,
-                }),
-            ),
-            (
-                combine(Some((1, true, 6))),
-                Some(DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Scale,
-                }),
-            ),
+            (combine(Some((1, false, 6))), None),
+            (combine(Some((1, true, 6))), None),
             (
                 combine(Some((1, false, 7))),
                 Some(DiagKind::UnsupportedConvertInput {

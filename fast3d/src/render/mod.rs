@@ -202,8 +202,12 @@ pub struct CombinerUniform {
     /// `gEXVertexZTest`: the test vertex's index plus one (0 for none), and 1 when the draw
     /// also compares its own depth (`Z_CMP`). Such draws run in the depth-reading pass.
     pub vertex_z_test: [u32; 2],
+    /// G_SETKEYR/G_SETKEYGB centers and scales (`.rgb`, value / 255 as RT64 has them): the
+    /// KEY_CENTER and KEY_SCALE color-combiner inputs.
+    pub key_center: [f32; 4],
+    pub key_scale: [f32; 4],
 }
-const _: () = assert!(std::mem::size_of::<CombinerUniform>() == 192);
+const _: () = assert!(std::mem::size_of::<CombinerUniform>() == 224);
 
 impl CombinerUniform {
     /// Uses `depth` for the whole draw when the render mode selects G_ZS_PRIM.
@@ -312,6 +316,18 @@ impl CombinerUniform {
             is_rect: 0,
             prim_depth: -1.0,
             vertex_z_test: [0; 2],
+            key_center: [
+                f32::from(mat.key[0].center) / 255.0,
+                f32::from(mat.key[1].center) / 255.0,
+                f32::from(mat.key[2].center) / 255.0,
+                0.0,
+            ],
+            key_scale: [
+                f32::from(mat.key[0].scale) / 255.0,
+                f32::from(mat.key[1].scale) / 255.0,
+                f32::from(mat.key[2].scale) / 255.0,
+                0.0,
+            ],
         }
     }
 
@@ -400,6 +416,8 @@ impl CombinerUniform {
             is_rect: 1,
             prim_depth: -1.0,
             vertex_z_test: [0; 2],
+            key_center: [0.0; 4],
+            key_scale: [0.0; 4],
         }
     }
 
@@ -437,6 +455,8 @@ impl CombinerUniform {
             is_rect: 1,
             prim_depth: -1.0,
             vertex_z_test: [0; 2],
+            key_center: [0.0; 4],
+            key_scale: [0.0; 4],
         }
     }
 }
@@ -447,7 +467,7 @@ mod tests {
 
     #[test]
     fn tile_sampling_uniform_and_shaders_fit_webgpu() {
-        assert_eq!(std::mem::size_of::<CombinerUniform>(), 192);
+        assert_eq!(std::mem::size_of::<CombinerUniform>(), 224);
         assert_eq!(std::mem::size_of::<TileSamplingArray>(), 960);
         let limits = wgpu::Limits::default();
         assert!(

@@ -75,6 +75,10 @@ impl ColorIn {
                 // these (byte-identity guarded by the scene mux-decode regression test).
                 | ColorIn::LodFraction
                 | ColorIn::PrimLodFrac
+                // KEY_CENTER (B) / KEY_SCALE (C): the G_SETKEYR/G_SETKEYGB values, which the
+                // uniform carries. Gauntlet Legends sets scale 0xFF to multiply by one.
+                | ColorIn::KeyCenter
+                | ColorIn::KeyScale
         )
     }
 }
@@ -514,7 +518,7 @@ fn validate_register_selectors(
     diags: &mut Vec<crate::diag::Diagnostic>,
     pc: u64,
 ) -> bool {
-    use crate::diag::{ConvertInput, DiagKind, Diagnostic, KeyInput};
+    use crate::diag::{ConvertInput, DiagKind, Diagnostic};
 
     let cycles: &[&CycleSel] = match cycle_type {
         0 => &[&selectors.cyc1],
@@ -524,12 +528,6 @@ fn validate_register_selectors(
     for cycle in cycles {
         for input in [cycle.ca, cycle.cb, cycle.cc, cycle.cd] {
             let kind = match input {
-                ColorIn::KeyCenter => DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Center,
-                },
-                ColorIn::KeyScale => DiagKind::UnsupportedKeyInput {
-                    selector: KeyInput::Scale,
-                },
                 ColorIn::K4 => DiagKind::UnsupportedConvertInput {
                     selector: ConvertInput::K4,
                 },
@@ -1093,8 +1091,8 @@ mod tests {
         assert_eq!(color_a(6), ColorIn::One);
         assert_eq!(color_b(6), ColorIn::KeyCenter);
         assert!(
-            !ColorIn::KeyCenter.wired(),
-            "KEY_CENTER is recognised but unwired; active draws must reject it"
+            ColorIn::KeyCenter.wired(),
+            "KEY_CENTER is wired to the key registers"
         );
 
         // The corrected, extracted annulment predicate must NOT treat this pair as provably zero.

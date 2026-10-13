@@ -67,12 +67,14 @@ const SUPPORT: [&[bool]; 8] = [
         true, true, true, true, true, true, true, false, true, true, true, true, true, true, true,
         true,
     ],
+    // B: KEY_CENTER (6) is wired; K4 (7) isn't.
     &[
-        true, true, true, true, true, true, false, false, true, true, true, true, true, true, true,
+        true, true, true, true, true, true, true, false, true, true, true, true, true, true, true,
         true,
     ],
+    // C: KEY_SCALE (6) is wired; K5 (15) isn't.
     &[
-        true, true, true, true, true, true, false, false, true, true, true, true, true, true, true,
+        true, true, true, true, true, true, true, false, true, true, true, true, true, true, true,
         false, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
         true, true,
     ],
@@ -156,12 +158,6 @@ fn combiner_support_matrix_all_slots() {
                         && (!supported || (cycle_type == 0 && texel1));
                     let expected = if rejected {
                         let kind = match (slot, encoding) {
-                            (1, 6) => DiagKind::UnsupportedKeyInput {
-                                selector: crate::diag::KeyInput::Center,
-                            },
-                            (2, 6) => DiagKind::UnsupportedKeyInput {
-                                selector: crate::diag::KeyInput::Scale,
-                            },
                             (1, 7) => DiagKind::UnsupportedConvertInput {
                                 selector: crate::diag::ConvertInput::K4,
                             },

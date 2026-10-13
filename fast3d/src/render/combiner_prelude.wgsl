@@ -85,6 +85,8 @@ struct Combiner {
     prim_depth:      f32,       // G_ZS_PRIM depth (0..1), or negative for the primitive's own z
     z_test_vertex:   u32,       // gEXVertexZTest vertex index + 1, or 0 for none
     z_test_compare:  u32,       // 1 when a z-tested draw also compares its own depth (Z_CMP)
+    key_center:      vec4<f32>, // G_SETKEYR/GB centers (.rgb, 0..1): the KEY_CENTER color input
+    key_scale:       vec4<f32>, // G_SETKEYR/GB scales (.rgb, 0..1): the KEY_SCALE color input
 };
 
 @group(0) @binding(0) var tex0:  texture_2d<f32>;
@@ -156,7 +158,8 @@ fn color_b_rgb(idx: u32, t0: vec4<f32>, t1: vec4<f32>, shade: vec3<f32>, combine
     if i == 3u { return prim; }
     if i == 4u { return shade; }
     if i == 5u { return env; }
-    // 6=KEY_CENTER, 7=K4 -> unwired -> ZERO
+    if i == 6u { return combiner.key_center.rgb; }
+    // 7=K4 -> unwired -> ZERO
     return vec3<f32>(0.0);
 }
 
@@ -171,7 +174,8 @@ fn color_c_rgb(idx: u32, t0: vec4<f32>, t1: vec4<f32>, shade: vec3<f32>, shade_a
     if i == 3u { return prim; }
     if i == 4u { return shade; }
     if i == 5u { return env; }
-    // 6..15 -> wired subset: 8=TEXEL0_ALPHA, 9=TEXEL1_ALPHA, 10=PRIM_ALPHA, 11=SHADE_ALPHA,
+    if i == 6u { return combiner.key_scale.rgb; }
+    // 7..15 -> wired subset: 8=TEXEL0_ALPHA, 9=TEXEL1_ALPHA, 10=PRIM_ALPHA, 11=SHADE_ALPHA,
     // 12=ENV_ALPHA, 13=LOD_FRACTION, 14=PRIM_LOD_FRAC (color-C mux slots).
     if i == 8u  { return vec3<f32>(t0.a); }
     if i == 9u  { return vec3<f32>(t1.a); }
