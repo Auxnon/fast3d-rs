@@ -673,11 +673,11 @@ impl Rsp {
         // establishes it, since a false cull would discard visible geometry.
         let mut common = 0x0f;
         for index in first..=last {
+            // The RSP would test whatever the slot holds. Gauntlet Legends loads vertices 0-7
+            // and culls 0-8; without that slot's contents fast3d can't show the list is off
+            // screen, so it draws it, which culling never makes wrong.
             if !self.loaded[index as usize] {
-                return Err(DiagKind::InvalidConditionalVertex {
-                    opcode: crate::hle::consts::G_CULLDL,
-                    index,
-                });
+                return Ok(false);
             }
             common &= self.clip_codes[index as usize]
                 .ok_or(DiagKind::InvalidVertexTransform { index })?;

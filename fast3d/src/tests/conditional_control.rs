@@ -219,6 +219,19 @@ fn culldl_uses_inclusive_range() {
     }
 }
 
+/// Gauntlet Legends loads vertices 0-7 and culls 0-8. A slot never loaded can't show the
+/// list is off screen, so it draws (culling never makes that wrong), and the walk goes on.
+#[test]
+fn culldl_with_an_unloaded_vertex_draws() {
+    let mut b = DlBuilder::new();
+    // Off screen on its own: culling just vertex 0 skips the list.
+    let v = vertex(&mut b, &[[2, 0, 0]]);
+    let entry = b.list("main", &[gsp_vertex(0, 1, v), (CULL.0, 2), MARK, END]);
+    let r = walk(b, &offsets(entry, &[0, 1, 2, 3]));
+    assert!(r.diags.is_empty(), "{:?}", r.diags);
+    assert_eq!(r.commands, 4);
+}
+
 #[test]
 fn culldl_ignores_face_mode_and_clipratio() {
     for geom in [0, G_CULL_FRONT, G_CULL_BACK, G_CULL_BOTH | G_CLIPPING] {
@@ -321,11 +334,10 @@ fn branchz_uses_load_viewport_and_modified_z() {
 
 #[test]
 fn conditional_invalid_vertex_rejects_task() {
+    // Cull ranges that only reach unloaded slots draw instead (see
+    // culldl_with_an_unloaded_vertex_draws); reversed or out-of-range ones still reject.
     for conditional in [
-        CULL,
         (CULL.0 | 2, 0),
-        (CULL.0, 2),
-        (CULL.0 | 2, 4),
         (CULL.0, 0xfffe),
         (BRANCH, 0),
         (BRANCH | 0xffe, 0),
