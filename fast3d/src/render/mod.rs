@@ -26,7 +26,8 @@ pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
 };
 
 /// Position+color+uv vertex stream (slot 0) — produced by the RSP-process compute pass.
-/// std430/vertex stride 48: position @0, color @16, uv @32 (pad @40).
+/// std430/vertex stride 48: position @0, color @16, uv @32, then `_pad`. The kernel writes 1 to
+/// `_pad[0]` for a .NoN microcode's vertex (no near clipping); CPU-built quads leave it 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct OutVertex {
@@ -37,8 +38,8 @@ pub struct OutVertex {
 }
 const _: () = assert!(std::mem::size_of::<OutVertex>() == 48);
 impl OutVertex {
-    pub const ATTRS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x2];
+    pub const ATTRS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x2, 3 => Float32];
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<OutVertex>() as wgpu::BufferAddress,
@@ -1018,6 +1019,14 @@ impl TexturedPipeline {
             ],
             immediate_size: 0,
         });
+        // .NoN microcodes skip near clipping: with DEPTH_CLIP_CONTROL the draw pipelines clamp depth
+        // per fragment and clip in the fragment shader (clip_depth), as RT64 does.
+        let unclipped_depth = unclipped_depth(device);
+        let depth_constants: &[(&str, f64)] = if unclipped_depth {
+            &[("UNCLIPPED_DEPTH", 1.0)]
+        } else {
+            &[]
+        };
         let make = |label: &str,
                     depth_stencil: Option<wgpu::DepthStencilState>,
                     cull_mode: Option<wgpu::Face>,
@@ -1039,9 +1048,13 @@ impl TexturedPipeline {
                         blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: depth_constants,
+                        ..Default::default()
+                    },
                 }),
                 primitive: wgpu::PrimitiveState {
+                    unclipped_depth,
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     front_face: wgpu::FrontFace::Ccw,
                     // wgpu facing == NDC winding (Y-up) here: N64-front is CCW-in-NDC = wgpu-front,
@@ -1172,9 +1185,13 @@ impl TexturedPipeline {
                         blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: depth_constants,
+                        ..Default::default()
+                    },
                 }),
                 primitive: wgpu::PrimitiveState {
+                    unclipped_depth,
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode,
@@ -1241,9 +1258,13 @@ impl TexturedPipeline {
                             blend: Some(dualsrc),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
-                        compilation_options: Default::default(),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: depth_constants,
+                            ..Default::default()
+                        },
                     }),
                     primitive: wgpu::PrimitiveState {
+                        unclipped_depth,
                         topology: wgpu::PrimitiveTopology::TriangleList,
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode,
@@ -1274,9 +1295,13 @@ impl TexturedPipeline {
                             blend: Some(dualsrc),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
-                        compilation_options: Default::default(),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: depth_constants,
+                            ..Default::default()
+                        },
                     }),
                     primitive: wgpu::PrimitiveState {
+                        unclipped_depth,
                         topology: wgpu::PrimitiveTopology::TriangleList,
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode,
@@ -1554,14 +1579,34 @@ impl TexturedPipeline {
 pub struct RspProcessPipeline {
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// The draw pipelines clamp depth per fragment ([`unclipped_depth`]).
+    unclipped_depth: bool,
 }
+
+/// Whether draw pipelines on `device` turn off depth clipping, as RT64 does for .NoN microcodes:
+/// geometry in front of the near plane is then clamped to it per fragment, and the fragment
+/// shader does the near and far clipping that the GPU no longer does.
+pub(crate) fn unclipped_depth(device: &wgpu::Device) -> bool {
+    device
+        .features()
+        .contains(wgpu::Features::DEPTH_CLIP_CONTROL)
+}
+
+/// Device features fast3d uses when the adapter has them: dual-source blending for the blender,
+/// and depth clip control for .NoN microcodes ([`unclipped_depth`]).
+pub const OPTIONAL_FEATURES: wgpu::Features =
+    wgpu::Features::DUAL_SOURCE_BLENDING.union(wgpu::Features::DEPTH_CLIP_CONTROL);
+
+/// `RspProcessParams::flags` bit: the draw pipelines clamp depth per fragment.
+pub const RSP_FLAG_UNCLIPPED_DEPTH: u32 = 1;
 
 /// Parameters uniform for the RSP-process compute kernel (binding 0, 16 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RspProcessParams {
     pub vertex_count: u32,
-    pub _pad: u32,
+    /// [`RSP_FLAG_UNCLIPPED_DEPTH`].
+    pub flags: u32,
     pub fb_width: f32,
     pub fb_height: f32,
 }
@@ -1644,6 +1689,7 @@ impl RspProcessPipeline {
         Self {
             pipeline,
             bind_group_layout,
+            unclipped_depth: unclipped_depth(device),
         }
     }
 
@@ -1702,7 +1748,11 @@ impl RspProcessPipeline {
                         label: Some("rsp-params"),
                         contents: bytemuck::bytes_of(&RspProcessParams {
                             vertex_count: n,
-                            _pad: 0,
+                            flags: if self.unclipped_depth {
+                                RSP_FLAG_UNCLIPPED_DEPTH
+                            } else {
+                                0
+                            },
                             fb_width: extent.0 as f32,
                             fb_height: extent.1 as f32,
                         }),
@@ -2416,11 +2466,7 @@ pub fn headless_device() -> (wgpu::Device, wgpu::Queue, bool) {
     let dual = adapter
         .features()
         .contains(wgpu::Features::DUAL_SOURCE_BLENDING);
-    let required_features = if dual {
-        wgpu::Features::DUAL_SOURCE_BLENDING
-    } else {
-        wgpu::Features::empty()
-    };
+    let required_features = adapter.features() & OPTIONAL_FEATURES;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("headless"),
         required_features,

@@ -6,6 +6,7 @@
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let r = eval_combiner(in);
+    clip_depth(in);
     var rgb = r.rgb;
     // C3: fog mix — applied when cyc1 blender P == CLR_FOG (3).
     // fog_factor = in.color.a (shade alpha, written by the C2 RSP-process fog pass).

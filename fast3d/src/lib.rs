@@ -25,6 +25,9 @@ pub use diag::{
 };
 // ── New vNext public API (spec §3.6): microcode selector ──
 pub use microcode::{detect_microcode, detect_microcode_from_data, Microcode};
+/// Features to request, where the adapter has them, on a device passed to
+/// [`Renderer::with_device`].
+pub use render::OPTIONAL_FEATURES;
 // ── Vertex/matrix data layout (`Fixed` N64 / `Float` GBI_FLOATS), orthogonal to the microcode ──
 pub use crate::hle::mem::GbiDataFormat as DataFormat;
 // ── New vNext public API (spec §3.5): render hooks ──
@@ -334,14 +337,8 @@ impl Renderer {
                 compatible_surface: Some(&surface),
             })
             .await?;
-        let dual_source = adapter
-            .features()
-            .contains(wgpu::Features::DUAL_SOURCE_BLENDING);
-        let required_features = if dual_source {
-            wgpu::Features::DUAL_SOURCE_BLENDING
-        } else {
-            wgpu::Features::empty()
-        };
+        let required_features = adapter.features() & render::OPTIONAL_FEATURES;
+        let dual_source = required_features.contains(wgpu::Features::DUAL_SOURCE_BLENDING);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("fast3d-device"),

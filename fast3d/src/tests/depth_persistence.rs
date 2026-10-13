@@ -1262,3 +1262,80 @@ fn color_format_change_preserves_independent_depth() {
         196608.0 / 262143.0
     });
 }
+
+/// A .NoN (F3DZEX2) quad crossing the near plane keeps its depth per fragment, clamped to the
+/// near plane where it's in front of it, as RT64 draws it. A blue quad at depth 0.1 sits behind
+/// a red one whose depth runs from -0.5 (left, in front of the near plane) to 0.5 (right).
+/// 45% of the way across, red's depth is -0.05, clamped to 0, so red wins; clamping the left
+/// vertices instead would give 0.225 there and lose to blue. F3DEX2 clips red there.
+#[test]
+fn no_near_clip_clamps_depth_per_fragment() {
+    let (device, queue, _) = crate::render::headless_device();
+    if !crate::render::unclipped_depth(&device) {
+        eprintln!("skipped: the adapter has no DEPTH_CLIP_CONTROL");
+        return;
+    }
+    let [left, top, right, bottom] = [32i16, 32, 288, 208];
+    let red_left_z = -256; // depth -0.5
+    let red_right_z = 0; // depth 0.5
+    for (ucode, red_at_45) in [
+        (crate::hle::gbi::GbiUcode::F3dzex2, true),
+        (crate::hle::gbi::GbiUcode::F3dex2, false),
+    ] {
+        let mut b = DlBuilder::new();
+        let mut dl = setup(&mut b, A, Z);
+        fill(&mut dl, 0xfffc_fffc, [0, 0, 319, 239]);
+        dl.push(gdp_set_color_image(0, 2, 320, A));
+        fill(&mut dl, 0x0001_0001, [0, 0, 319, 239]);
+        quad(&mut b, &mut dl, [left, top, right, bottom], -102, BLUE);
+        let vertices = b.vertices(
+            &[
+                (left, top, red_left_z),
+                (left, bottom, red_left_z),
+                (right, bottom, red_right_z),
+                (right, top, red_right_z),
+            ]
+            .map(|(x, y, z)| VtxColored {
+                x: x - 160,
+                y: 120 - y,
+                z,
+                flag: 0,
+                s: 0,
+                t: 0,
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        );
+        dl.extend([gsp_vertex(0, 4, vertices), gsp_2triangles(0, 1, 2, 0, 2, 3)]);
+        let built = finish(b, dl);
+        let result = crate::hle::interp::interpret(
+            crate::hle::mem::RdramImage::new(&built.rdram),
+            built.entry as u64,
+            ucode,
+            crate::hle::mem::GbiDataFormat::Fixed,
+            None,
+        );
+        assert!(result.diags.is_empty(), "{:?}", result.diags);
+        let mut renderer = SceneRenderer::new(&device, FORMAT, 320, 240, false);
+        renderer.render_into_store(&device, &queue, &result.scene, ClearPolicy::PerFrame);
+        let pixels = scanout(&device, &queue, &mut renderer, A);
+        let pixel = |x: usize, y: usize| -> [u8; 4] {
+            pixels[(y * 320 + x) * 4..][..4].try_into().unwrap()
+        };
+        let x45 = 32 + (256 * 45 / 100);
+        assert_eq!(
+            pixel(x45, 120),
+            if red_at_45 { RED } else { BLUE },
+            "{ucode:?}"
+        );
+        // Behind blue on the right either way, in front of it near the left edge only with NoN.
+        assert_eq!(pixel(280, 120), BLUE, "{ucode:?}");
+        assert_eq!(
+            pixel(40, 120),
+            if red_at_45 { RED } else { BLUE },
+            "{ucode:?}"
+        );
+    }
+}

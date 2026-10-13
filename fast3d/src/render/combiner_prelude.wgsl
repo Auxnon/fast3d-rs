@@ -9,13 +9,31 @@ struct VsIn {
     @location(0) position: vec4<f32>, // clip-space (x, y, z, w)
     @location(1) color:    vec4<f32>, // RGBA, linear 0..1
     @location(2) uv:       vec2<f32>, // normalized UV [0,1]
+    @location(3) no_near_clip: f32,   // 1 for a .NoN microcode's vertex
 };
 
 struct VsOut {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) uv:    vec2<f32>,
+    @location(2) clip_zw: vec2<f32>,
+    @location(3) @interpolate(flat) no_near_clip: f32,
 };
+
+// Set when the pipeline doesn't clip depth (unclipped_depth): the fragment stage clips to the
+// far plane, and to the near plane except for .NoN geometry, whose depth the GPU clamps.
+override UNCLIPPED_DEPTH: bool = false;
+
+// Discards a fragment the GPU's depth clipping would have removed (see UNCLIPPED_DEPTH). Called
+// after eval_combiner, whose derivatives need uniform control flow.
+fn clip_depth(in: VsOut) {
+    if UNCLIPPED_DEPTH {
+        let z = in.clip_zw.x / in.clip_zw.y;
+        if z > 1.0 || (z < 0.0 && in.no_near_clip == 0.0) {
+            discard;
+        }
+    }
+}
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
@@ -28,6 +46,8 @@ fn vs_main(in: VsIn) -> VsOut {
     if combiner.prim_depth >= 0.0 {
         out.clip_position.z = combiner.prim_depth * out.clip_position.w;
     }
+    out.clip_zw = out.clip_position.zw;
+    out.no_near_clip = in.no_near_clip;
     out.color = in.color;
     out.uv = in.uv;
     return out;

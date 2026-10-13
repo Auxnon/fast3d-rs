@@ -10,6 +10,7 @@
 @fragment
 fn fs_decal(in: VsOut) -> FragOut {
     let r = eval_combiner(in);
+    clip_depth(in);
     let p1 = (combiner.blender_mux >> 14u) & 3u;
     var comb3 = r.rgb;
     if (p1 == 3u) {

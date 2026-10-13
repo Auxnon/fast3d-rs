@@ -923,7 +923,7 @@ pub(super) fn run_compute_outputs(
     let params = mk(
         bytemuck::bytes_of(&crate::render::RspProcessParams {
             vertex_count: n,
-            _pad: 0,
+            flags: 0,
             fb_width: 320.0,
             fb_height: 240.0,
         }),
@@ -2457,7 +2457,7 @@ fn render_fixture_to_rgba8(name: &str, w: u32, h: u32) -> Vec<u8> {
         label: Some("smoke-params"),
         contents: bytemuck::bytes_of(&RspProcessParams {
             vertex_count: n,
-            _pad: 0,
+            flags: 0,
             fb_width: 320.0,
             fb_height: 240.0,
         }),
@@ -3292,7 +3292,7 @@ fn run_fog_kernel_alpha(clip_z: f32, clip_w: f32, fm: f32, fo: f32) -> f32 {
     let params = mk(
         bytemuck::bytes_of(&crate::render::RspProcessParams {
             vertex_count: n,
-            _pad: 0,
+            flags: 0,
             fb_width: 320.0,
             fb_height: 240.0,
         }),

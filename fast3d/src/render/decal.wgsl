@@ -14,6 +14,7 @@
 @fragment
 fn fs_decal(in: VsOut) -> @location(0) vec4<f32> {
     let r = eval_combiner(in);
+    clip_depth(in);
     var rgb = r.rgb;
     // C3: fog mix — applied when cyc1 blender P == CLR_FOG (3). Matches skeleton.wgsl/fs_main.
     let p1 = (combiner.blender_mux >> 14u) & 3u;

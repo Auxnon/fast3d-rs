@@ -46,6 +46,7 @@ fn blend_b(sel: u32, a: f32) -> f32 {
 @fragment
 fn fs_main(in: VsOut) -> FragOut {
     let r = eval_combiner(in);
+    clip_depth(in);
     // C3: fog mix — when cyc1 blender P == CLR_FOG (3), mix combiner output toward fog color
     // before it is used as CLR_IN in the fb-cycle blender below.
     let p1 = (combiner.blender_mux >> 14u) & 3u;

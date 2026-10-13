@@ -5,7 +5,9 @@
 // color: diffuse lighting (light_count>0) or cn RGBA passthrough (unlit).
 
 // Must mirror RspProcessParams (render/mod.rs) exactly — 16 bytes.
-struct Params { vertex_count: u32, _pad: u32, fb_width: f32, fb_height: f32 };
+// flags bit 0: the draw pipelines clamp depth per fragment (unclipped depth), so no-near-clip
+// vertices keep their depth.
+struct Params { vertex_count: u32, flags: u32, fb_width: f32, fb_height: f32 };
 // Must mirror rsp_buffers::SrcVertex (render/mod.rs) exactly — 80 bytes.
 struct SrcVertex {
     pos: vec3<f32>,
@@ -26,7 +28,8 @@ struct GpuViewport { scale: vec4<f32>, trans: vec4<f32> };
 struct GpuTexcoord { scale_s: f32, scale_t: f32, texgen_scale_s: f32, texgen_scale_t: f32 };
 struct GpuLight { dir: vec4<f32>, col: vec4<f32> };
 struct GpuLookAt { axis_s: vec4<f32>, axis_t: vec4<f32> };
-struct OutVertex { pos: vec4<f32>, color: vec4<f32>, uv: vec2<f32> }; // std430 stride 48
+// no_near_clip: 1 for a .NoN microcode's vertex (OutVertex::_pad[0] on the CPU side).
+struct OutVertex { pos: vec4<f32>, color: vec4<f32>, uv: vec2<f32>, no_near_clip: f32 }; // std430 stride 48
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> src: array<SrcVertex>;
@@ -71,11 +74,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if ((v.modify_flags & 2u) != 0u) {
         o.pos.z = v.modify_screen.z * w;
     }
-    // No near clipping (.NoN microcodes): keep geometry in front of the near plane by clamping
-    // depth to it instead of clipping. RT64 clamps per fragment (depth clip off); clamping per
-    // vertex differs only inside triangles that cross the near plane. Far clipping is unchanged.
+    // No near clipping (.NoN microcodes): geometry in front of the near plane is drawn at the
+    // near plane's depth. Where the pipelines clamp depth per fragment, as RT64 does, the vertex
+    // is only marked. Otherwise its depth is clamped here, which is wrong inside triangles that
+    // cross the near plane (they can lose whole triangles). Far clipping is unchanged.
     if ((v.modify_flags & 4u) != 0u) {
-        o.pos.z = max(o.pos.z, 0.0);
+        o.no_near_clip = 1.0;
+        if ((params.flags & 1u) == 0u) {
+            o.pos.z = max(o.pos.z, 0.0);
+        }
     }
     // Prefolded scale (f64-computed CPU-side): one f32 multiply per axis (spec §2 Precision).
     o.uv = vec2<f32>(v.st.x * tc.scale_s, v.st.y * tc.scale_t);
