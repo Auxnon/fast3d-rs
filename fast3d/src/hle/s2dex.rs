@@ -169,6 +169,7 @@ fn draw_tex_rect<M: Rdram>(
     ult: i16,
     dsdx: i16,
     dtdy: i16,
+    framebuffer_image: bool,
 ) {
     crate::hle::interp::record_texrect(
         cx.rsp,
@@ -180,6 +181,7 @@ fn draw_tex_rect<M: Rdram>(
         cx.pc,
         crate::hle::TexRectBounds { ulx, uly, lrx, lry },
         (tile as u8, uls, ult, dsdx, dtdy, false),
+        framebuffer_image,
     );
 }
 
@@ -265,6 +267,7 @@ pub(crate) fn bg_copy<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
             0,
             dsdx,
             dsdy,
+            true,
         );
         return;
     }
@@ -293,6 +296,7 @@ pub(crate) fn bg_copy<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
             0,
             dsdx,
             dsdy,
+            false,
         );
     }
 }
@@ -685,13 +689,15 @@ pub(crate) fn bg_1cyc<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
             u32::from(src_wsize >> 1),
             image_ptr,
         );
+        // The tile covers the image's whole pixels: a fractional size (Majora's Mask uses
+        // 320.25 x 240.25) would reach a row and column past the framebuffer.
         set_tile_size(
             cx,
             G_TX_RENDERTILE,
             uls,
             ult,
-            uls + i32::from(bg.image_w),
-            ult + i32::from(bg.image_h),
+            uls + (i32::from(bg.image_w) & !3) - 4,
+            ult + (i32::from(bg.image_h) & !3) - 4,
         );
         let uly = i32::from(frame_y0) & !0x3;
         draw_tex_rect(
@@ -705,6 +711,7 @@ pub(crate) fn bg_1cyc<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
             image_t,
             scale_w as i16,
             scale_h as i16,
+            true,
         );
         return;
     }
@@ -774,6 +781,7 @@ pub(crate) fn bg_1cyc<M: Rdram>(c: &Cmd, cx: &mut Ctx<M>) {
                 image_t,
                 scale_w as i16,
                 scale_h as i16,
+                false,
             );
             frame_ptr_y0 = frame_ptr_y1;
         }

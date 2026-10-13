@@ -629,6 +629,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                             pc,
                             rect,
                             params,
+                            false,
                         );
                         if let (Some(observed), Some(emission)) = (&mut observed, emission) {
                             observed.emission = Some(emission);
@@ -796,6 +797,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     pc,
                     rect,
                     (tile, uls, ult, dsdx, dtdy, flip),
+                    false,
                 );
                 if let (Some(observed), Some(emission)) = (&mut observed, emission) {
                     observed.emission = Some(emission);
@@ -1034,6 +1036,10 @@ pub fn interpret_rdram(bytes: &[u8], entry_addr: u32) -> InterpResult {
 
 /// Records a texture rectangle (G_TEXRECT/G_TEXRECTFLIP or the extended
 /// gEXTextureRectangle). Returns the observer emission, or `None` when it's dropped.
+///
+/// A rectangle samples a framebuffer when the texture image is one and no TMEM load reaches
+/// its tile. `framebuffer_image` skips the TMEM check, for a caller that draws the texture
+/// image directly (an S2DEX background whose image is a framebuffer).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn record_texrect(
     rsp: &mut crate::hle::rsp::Rsp,
@@ -1045,6 +1051,7 @@ pub(crate) fn record_texrect(
     pc: u64,
     rect: crate::hle::TexRectBounds,
     (tile, uls, ult, dsdx, dtdy, flip): (u8, i16, i16, i16, i16, bool),
+    framebuffer_image: bool,
 ) -> Option<Emission<'static>> {
     let copy_mode = ((rdp.other_mode_h >> 20) & 3) == crate::hle::consts::G_CYC_COPY;
 
@@ -1068,7 +1075,7 @@ pub(crate) fn record_texrect(
         &crate::hle::combiner::decode_combine(rdp.combine_l, rdp.combine_h),
         (rdp.other_mode_h >> 20) & 3,
     );
-    let load_free = !rdp.tmem_bank.tile_has_load(tile_desc);
+    let load_free = framebuffer_image || !rdp.tmem_bank.tile_has_load(tile_desc);
     let source = if uses_texture && load_free {
         rec.framebuffers.targets.source(
             rdp.tex_image.3,
@@ -1113,7 +1120,7 @@ pub(crate) fn record_texrect(
         }
     };
     let Some((material_index, render_mode_index)) =
-        crate::hle::rsp::snapshot_rect_run(rsp, rdp, tile, diags, scene, pc)
+        crate::hle::rsp::snapshot_rect_run(rsp, rdp, tile, diags, scene, pc, fb_source.is_some())
     else {
         *dropped_runs += 1;
         return None;

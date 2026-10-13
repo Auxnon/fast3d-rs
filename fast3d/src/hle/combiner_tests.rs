@@ -132,7 +132,8 @@ fn material(rdp: &Rdp, rect: bool) -> (Option<Material>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let result = if rect {
         let mut scene = Scene::default();
-        let _ = crate::hle::rsp::snapshot_rect_run(&rsp, rdp, 0, &mut diags, &mut scene, 0x1234);
+        let _ =
+            crate::hle::rsp::snapshot_rect_run(&rsp, rdp, 0, &mut diags, &mut scene, 0x1234, false);
         scene.materials.pop()
     } else {
         build_material(rdp, &rsp, &mut diags, 0x1234)

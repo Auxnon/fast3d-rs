@@ -741,7 +741,7 @@ pub fn build_material(
     diags: &mut Vec<crate::diag::Diagnostic>,
     pc: u64,
 ) -> Option<Material> {
-    build_material_inner(rdp, rsp, diags, pc, None)
+    build_material_inner(rdp, rsp, diags, pc, None, false)
 }
 
 fn build_material_inner(
@@ -750,6 +750,7 @@ fn build_material_inner(
     diags: &mut Vec<crate::diag::Diagnostic>,
     pc: u64,
     rect_tile: Option<u8>,
+    framebuffer: bool,
 ) -> Option<Material> {
     rsp.profiling.count("material.builds", 1);
     let rect = rect_tile.is_some();
@@ -764,7 +765,7 @@ fn build_material_inner(
     let (uses_physical0, uses_physical1) = physical_texture_uses(&selectors, cycle_type);
     let base = usize::from(rect_tile.unwrap_or(rsp.texture_state.tile) & 7);
     let mut used_tiles = Vec::new();
-    if uses_physical0 {
+    if uses_physical0 && !framebuffer {
         used_tiles.push(base);
     }
     if uses_physical1 {
@@ -791,7 +792,7 @@ fn build_material_inner(
             return None;
         }
     }
-    if !rdp.texture_loaded && cycle_type < 2 {
+    if !rdp.texture_loaded && cycle_type < 2 && !framebuffer {
         if !rect && rdp.combine_l == 0 && rdp.combine_h == 0 {
             return None;
         }
@@ -807,7 +808,15 @@ fn build_material_inner(
     let base = (rect_tile.unwrap_or(rsp.texture_state.tile) & 7) as usize;
     let tile = &rdp.tiles[base];
     let tlut_fmt = ((rdp.other_mode_h >> 14) & 0x3) as u8;
-    let decoded = if uses_physical0 {
+    let decoded = if framebuffer {
+        // Only the tile's extent matters; the texels come from the framebuffer.
+        MipLevel {
+            sampling: TileSampling::default(),
+            texture: vec![0; 4].into(),
+            w: u32::from(tile.width.max(1)),
+            h: u32::from(tile.height.max(1)),
+        }
+    } else if uses_physical0 {
         texture_at_draw(
             request_with_trace(rdp, tile, tlut_fmt, rsp, "texture0"),
             diags,
@@ -932,7 +941,20 @@ pub fn build_rect_material(
     diags: &mut Vec<crate::diag::Diagnostic>,
     pc: u64,
 ) -> Option<Material> {
-    build_material_inner(rdp, rsp, diags, pc, Some(tile))
+    build_material_inner(rdp, rsp, diags, pc, Some(tile), false)
+}
+
+/// [`build_rect_material`] for a rectangle sampling a framebuffer on the GPU. TMEM isn't
+/// read, so a rejected load there (such as a failed load of that framebuffer from RDRAM)
+/// doesn't drop the draw.
+pub(crate) fn build_framebuffer_rect_material(
+    rdp: &crate::hle::rdp::Rdp,
+    rsp: &crate::hle::rsp::Rsp,
+    tile: u8,
+    diags: &mut Vec<crate::diag::Diagnostic>,
+    pc: u64,
+) -> Option<Material> {
+    build_material_inner(rdp, rsp, diags, pc, Some(tile), true)
 }
 
 impl Tex1 {

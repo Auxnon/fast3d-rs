@@ -241,6 +241,90 @@ fn bg_1cyc_unscaled_tiles_the_frame_in_tmem_slices() {
     assert_eq!(r.rdp.tiles[0].line, 81);
 }
 
+/// Majora's Mask's motion blur: each frame draws a saved copy over the framebuffer, then
+/// saves the framebuffer, both with `gSPBgRect1Cyc` at 320.25 x 240.25. On the first frame
+/// the saved copy isn't a framebuffer yet, and its load is rejected for reaching into the
+/// depth buffer before it. The save samples the framebuffer, not TMEM, so it must still draw.
+#[test]
+fn bg_1cyc_of_a_framebuffer_draws_after_a_rejected_load() {
+    const SAVE: u32 = 0x0030_0000;
+    let r = run(|b| {
+        let framebuffer = b.bytes(
+            8,
+            &background(
+                CIMG,
+                ((320 << 2) | 1, (240 << 2) | 1),
+                (0, 0, 320 << 2, 240 << 2),
+                0,
+                2,
+                1 << 10,
+                1 << 10,
+            ),
+        );
+        let tex = CcPass {
+            a: ZERO_C,
+            b: ZERO_C,
+            c: ZERO_C,
+            d: 1,
+        };
+        let tex_a = CcPass {
+            a: ZERO_A,
+            b: ZERO_A,
+            c: ZERO_A,
+            d: 1,
+        };
+        let commands = [
+            gdp_set_cycle_type(3),
+            gdp_set_fill_color(0x0001_0001),
+            gdp_fill_rectangle(0, 0, 1276, 956),
+            // A load from inside the framebuffer: rejected, leaving TMEM unusable.
+            gdp_set_texture_image(0, 2, 320, CIMG + 0x280),
+            gdp_set_tile(0, 2, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0),
+            gdp_load_block(7, 0, 0, 2047, 0),
+            gdp_set_cycle_type(0),
+            gdp_set_render_mode(
+                n64_gbi::consts::G_RM_OPA_SURF,
+                n64_gbi::consts::G_RM_OPA_SURF2,
+            ),
+            gdp_set_combine_lerp(tex, tex_a, tex, tex_a),
+            gdp_set_color_image(0, 2, 320, SAVE),
+            ((G_BG_1CYC as u32) << 24, framebuffer),
+        ];
+        s2dex(b, &commands)
+    });
+    assert!(
+        r.diags.iter().any(|d| matches!(
+            d.kind,
+            crate::DiagKind::UnsupportedFramebufferAccess {
+                reason: crate::FramebufferAccess::TextureLoad,
+                ..
+            }
+        )),
+        "{:?}",
+        r.diags
+    );
+    let saves: Vec<_> = r
+        .scene
+        .framebuffer_pairs
+        .iter()
+        .filter(|p| p.color_image.addr == u64::from(SAVE))
+        .flat_map(|p| &p.ops)
+        .filter_map(|op| match op {
+            SceneOp::TexRect {
+                fb_source,
+                material_index,
+                ..
+            } => Some((
+                *fb_source,
+                r.scene.materials[*material_index as usize].tex_h,
+            )),
+            _ => None,
+        })
+        .collect();
+    // One rectangle sampling the framebuffer, over its whole 240 lines and no further.
+    assert_eq!(saves, vec![(Some(u64::from(CIMG)), 240)], "{:?}", r.diags);
+}
+
 /// A `uObjTxtrBlock_t`.
 fn txtr_block(image: u32, tsize: u16, tline: u16, sid: u16, flag: u32, mask: u32) -> Vec<u8> {
     let mut b = Vec::new();

@@ -1279,9 +1279,14 @@ pub(crate) fn snapshot_rect_run(
     diags: &mut Vec<crate::diag::Diagnostic>,
     scene: &mut Scene,
     pc: u64,
+    framebuffer: bool,
 ) -> Option<(u32, u32)> {
     validate_depth_alias(rdp, false, diags, pc)?;
-    let m = crate::hle::combiner::build_rect_material(rdp, rsp, tile, diags, pc)?;
+    let m = if framebuffer {
+        crate::hle::combiner::build_framebuffer_rect_material(rdp, rsp, tile, diags, pc)?
+    } else {
+        crate::hle::combiner::build_rect_material(rdp, rsp, tile, diags, pc)?
+    };
     let material_index = match scene.materials.last() {
         Some(last) if last.matches(&m, &rsp.profiling) => (scene.materials.len() - 1) as u32,
         _ => {
