@@ -1091,8 +1091,10 @@ mod phase5_tests {
         }
         push(&mut bytes, gdp_set_color_image(0, 2, 64, 0x0001_0000));
         push(&mut bytes, gdp_set_scissor(0, 0, 0, 64 * 4, 64 * 4));
+        push(&mut bytes, n64_gbi::encode::gdp_set_cycle_type_f3d(3));
         push(&mut bytes, gdp_set_fill_color(0xCAFE_F00D));
         push(&mut bytes, gdp_fill_rectangle(4 * 4, 6 * 4, 20 * 4, 22 * 4));
+        push(&mut bytes, n64_gbi::encode::gdp_set_cycle_type_f3d(0));
         let mut texrect =
             gsp_texture_rectangle(8 * 4, 12 * 4, 31 * 4, 35 * 4, 0, 11, 13, 1024, 512, false);
         texrect[1].0 = (G_RDPHALF_1 as u32) << 24;

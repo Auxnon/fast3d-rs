@@ -644,6 +644,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                             lry: i32::from(s16(w1.w1, 0)) >> 2,
                         };
                         let emission = record_fillrect(
+                            &mut rsp,
                             &mut rdp,
                             &mut scene,
                             &mut rec,
@@ -842,6 +843,7 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                 }
 
                 let emission = record_fillrect(
+                    &mut rsp,
                     &mut rdp,
                     &mut scene,
                     &mut rec,
@@ -1171,7 +1173,14 @@ pub(crate) fn record_texrect(
 
 /// Records a fill rectangle (G_FILLRECT or the extended gEXFillRectangle). Returns the
 /// observer emission, or `None` when it's dropped.
+///
+/// Only fill and copy modes write the fill color. In 1- and 2-cycle modes the RDP shades the
+/// rectangle through the combiner and blender, as an untextured texture rectangle with an
+/// exclusive lower-right edge (Majora's Mask fades the screen this way, with a translucent
+/// primitive color).
+#[allow(clippy::too_many_arguments)]
 fn record_fillrect(
+    rsp: &mut crate::hle::rsp::Rsp,
     rdp: &mut crate::hle::rdp::Rdp,
     scene: &mut Scene,
     rec: &mut crate::hle::rsp::PairRec,
@@ -1180,6 +1189,30 @@ fn record_fillrect(
     pc: u64,
     rect: crate::hle::rsp::Rect,
 ) -> Option<Emission<'static>> {
+    let cycle_type = (rdp.other_mode_h >> 20) & 3;
+    if cycle_type < crate::hle::consts::G_CYC_COPY {
+        if rect.lrx < rect.ulx || rect.lry < rect.uly {
+            return None;
+        }
+        let bounds = crate::hle::TexRectBounds {
+            ulx: rect.ulx << 2,
+            uly: rect.uly << 2,
+            lrx: rect.lrx << 2,
+            lry: rect.lry << 2,
+        };
+        return record_texrect(
+            rsp,
+            rdp,
+            scene,
+            rec,
+            diags,
+            dropped_runs,
+            pc,
+            bounds,
+            (0, 0, 0, 0, 0, false),
+            false,
+        );
+    }
     if !rdp.color_image_set {
         *dropped_runs += 1;
         diags.push(Diagnostic {
@@ -1801,6 +1834,7 @@ mod rect_encoding_tests {
     fn fixed_fillrect_one_word_records_fill_color() {
         let mut b = Vec::new();
         push(&mut b, cimg(0x10000));
+        push(&mut b, n64_gbi::encode::gdp_set_cycle_type(3));
         push(&mut b, fill_color(0xCAFE_F00D));
         // 1-word FILLRECT: lrx=320, lry=240, ulx=10, uly=20.
         push(
@@ -1885,6 +1919,7 @@ mod rect_encoding_tests {
     fn float_fillrect_two_words_records_fill_color() {
         let mut b = Vec::new();
         push(&mut b, cimg(0x10000));
+        push(&mut b, n64_gbi::encode::gdp_set_cycle_type(3));
         push(&mut b, fill_color(0x1234_5678));
         // Float FILLRECT = F6 + E1: lrx/lry in cmd0.w0/w1, ulx/uly in cmd1.w0/w1 (all sext24).
         push(&mut b, ((G_FILLRECT as u32) << 24 | 1280, 960));
@@ -1919,6 +1954,7 @@ mod rect_encoding_tests {
         let mut b = Vec::new();
         push(&mut b, cimg(0x10000));
         push(&mut b, scissor(0, 0, 320, 240, 0)); // S1 (becomes active_scissor)
+        push(&mut b, n64_gbi::encode::gdp_set_cycle_type(3));
         push(&mut b, fill_color(0x1111_1111));
         push(
             &mut b,

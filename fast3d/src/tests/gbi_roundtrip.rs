@@ -57,6 +57,7 @@ fn roundtrip_known_f3dex2_stubs() {
 fn roundtrip_fill_rectangle() {
     let r = interpret_commands([
         gdp_set_color_image(0, 2, 320, 0x00100000),
+        gdp_set_cycle_type(3),
         gdp_set_fill_color(0xCAFECAFE),
         gdp_fill_rectangle(0, 0, 1280, 960),
         gsp_enddl(),
@@ -173,6 +174,7 @@ fn roundtrip_set_scissor() {
     let r = interpret_commands([
         gdp_set_color_image(0, 2, 320, 0x00100000),
         gdp_set_scissor(0, 0, 0, 1280, 960),
+        gdp_set_cycle_type(3),
         gdp_set_fill_color(0xCAFECAFE),
         gdp_fill_rectangle(0, 0, 1280, 960),
         gsp_enddl(),

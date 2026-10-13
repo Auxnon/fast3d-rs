@@ -30,6 +30,7 @@ mod extended_gbi;
 mod f3dex2_fixtures;
 mod facade;
 mod fb_store;
+mod fill_cycles;
 mod filter;
 #[cfg(feature = "capture")]
 mod filter_fixtures;

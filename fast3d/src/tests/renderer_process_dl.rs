@@ -181,6 +181,7 @@ fn fill_hw(addr: u32, color: u32) -> ImgHw {
         rdram: [
             gdp_set_color_image(0, 2, 64, addr),
             gdp_set_scissor(0, 0, 0, 256, 256),
+            gdp_set_cycle_type(3),
             gdp_set_fill_color(color),
             gdp_fill_rectangle(0, 0, 252, 252),
             gsp_enddl(),
@@ -237,7 +238,7 @@ fn cancelled_render_preserves_previous_dls_and_does_not_create_framebuffers() {
                 }
             },
         );
-        assert_eq!(summary.commands, 4);
+        assert_eq!(summary.commands, 5);
         assert_eq!(summary.commands, count);
         assert_eq!(summary.termination, WalkTermination::ObserverStopped);
         assert!(!summary.renderable);

@@ -182,6 +182,7 @@ fn memory_read_discards_scene_and_observes_fault() {
         let fault = gdp_load_tlut(7, 3);
         let memory = bytes([
             gdp_set_color_image(0, 2, 320, 0x100000),
+            (0xef30_0c00, 0), // G_RDPSETOTHERMODE: fill mode, G_TC_FILT
             gdp_fill_rectangle(0, 0, 16, 16),
             gdp_set_tile(0, 2, 0, 0x100, 7, 0, 0, 0, 0, 0, 0, 0),
             gdp_set_texture_image(0, 2, 1, 0x1000),
@@ -198,14 +199,14 @@ fn memory_read_discards_scene_and_observes_fault() {
         );
         assert_eq!(ordinary.termination, WalkTermination::Bounds);
         assert_eq!(ordinary.scene, crate::hle::rsp::Scene::default());
-        assert_eq!(ordinary.commands, 5);
+        assert_eq!(ordinary.commands, 6);
         assert_eq!(ordinary.dropped_runs, 1);
         assert_eq!(ordinary.rdp.env, [0; 4]);
         assert_eq!(ordinary.final_diagnostics_start, ordinary.diags.len());
         assert_eq!(
             ordinary.diags,
             [crate::Diagnostic {
-                at: 32,
+                at: 40,
                 kind: crate::DiagKind::MemoryRead {
                     access: crate::diag::MemoryAccess::Tlut,
                     error: crate::MemoryError {
@@ -228,17 +229,17 @@ fn memory_read_discards_scene_and_observes_fault() {
                     count += 1;
                     assert_eq!(step.diagnostics_start, diags.len());
                     diags.extend_from_slice(step.diagnostics);
-                    if step.seq == 1 {
+                    if step.seq == 2 {
                         assert!(matches!(step.emissions, [Emission::FillRect { .. }]));
                     }
-                    if step.seq == 4 {
-                        assert_eq!(step.pc, 32);
+                    if step.seq == 5 {
+                        assert_eq!(step.pc, 40);
                         assert_eq!(step.flow, WalkFlow::Fault);
                         assert_eq!(step.next_pc, None);
                         assert_eq!(
                             step.words,
                             &[CommandWord {
-                                pc: 32,
+                                pc: 40,
                                 w0: fault.0,
                                 w1: fault.1,
                                 w1_addr: u64::from(fault.1),
@@ -253,7 +254,7 @@ fn memory_read_discards_scene_and_observes_fault() {
                     ControlFlow::Continue(())
                 }),
             );
-            assert_eq!(count, 5);
+            assert_eq!(count, 6);
             assert_eq!(diags, observed.diags);
             assert_eq!(observed, ordinary);
         }
@@ -285,6 +286,7 @@ fn fixed_rectangles_have_exact_dispatches_words_and_targets() {
                 commands.push(gdp_set_scissor(0, 0, 0, 1280, 960));
             }
             commands.extend([
+                (0xef30_0c00, 0), // G_RDPSETOTHERMODE: fill mode, G_TC_FILT
                 gdp_set_fill_color(0xcafecafe),
                 gdp_fill_rectangle(0, 0, 1280, 960),
                 end(ucode),
@@ -822,8 +824,12 @@ fn float_rectangles_consume_continuations_and_preserve_sentinel() {
     for tex in [false, true] {
         let mut commands = vec![
             gdp_set_color_image(0, 2, 320, 0x100000),
+            (0xef30_0c00, 0), // G_RDPSETOTHERMODE: fill mode, G_TC_FILT
             gdp_set_fill_color(0x12345678),
         ];
+        if tex {
+            commands[1] = (0xef00_0c00, 0); // 1-cycle, G_TC_FILT
+        }
         commands.push((if tex { 0xe4000500 } else { 0xf6000500 }, 960));
         commands.push((0xe1000000, if tex { 0x000b000d } else { 0 }));
         if tex {
@@ -843,7 +849,7 @@ fn float_rectangles_consume_continuations_and_preserve_sentinel() {
             Microcode::F3dex2,
             DataFormat::Float,
             &mut |s: WalkStep<'_>| {
-                if s.seq == 2 {
+                if s.seq == 3 {
                     assert_eq!(s.words.len(), if tex { 3 } else { 2 });
                     assert_eq!(s.emissions.len(), 1);
                     match s.emissions[0] {
@@ -880,17 +886,17 @@ fn float_rectangles_consume_continuations_and_preserve_sentinel() {
                         other => panic!("{other:?}"),
                     }
                     for (i, w) in s.words.iter().enumerate() {
-                        assert_eq!(w.pc, (i as u64 + 2) * 8);
-                        assert_eq!((w.w0, w.w1), commands[i + 2]);
+                        assert_eq!(w.pc, (i as u64 + 3) * 8);
+                        assert_eq!((w.w0, w.w1), commands[i + 3]);
                     }
                 }
-                if s.seq == 3 {
+                if s.seq == 4 {
                     assert_eq!(s.state.prim_color, [0x12, 0x34, 0xab, 0xcd]);
                 }
                 ControlFlow::Continue(())
             },
         );
-        assert_eq!(summary.dispatched, 5);
+        assert_eq!(summary.dispatched, 6);
     }
     let memory = bytes([(0xf6000500, 960)]);
     let summary = walk(
@@ -1486,6 +1492,7 @@ fn texture_rectangle_keeps_prior_framebuffer_source_and_copy_mode() {
             gdp_set_color_image(0, 2, 320, 0x100000),
             gdp_set_scissor(0, 0, 0, 1280, 960),
             gdp_set_tile(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            (0xef30_0c00, 0), // G_RDPSETOTHERMODE: fill mode, G_TC_FILT
             gdp_fill_rectangle(0, 0, 1280, 960),
             gdp_set_color_image(0, 2, 320, 0x200000),
             gdp_set_texture_image(0, 2, 320, 0x100000),
@@ -1515,7 +1522,7 @@ fn texture_rectangle_keeps_prior_framebuffer_source_and_copy_mode() {
                         ..
                     } = emission
                     {
-                        assert_eq!(s.seq, 7);
+                        assert_eq!(s.seq, 8);
                         assert_eq!(target.pair_index, 1);
                         assert_eq!(target.color_image.addr, 0x200000);
                         assert_eq!(*fb_source, Some(0x100000));
@@ -1526,7 +1533,7 @@ fn texture_rectangle_keeps_prior_framebuffer_source_and_copy_mode() {
                 ControlFlow::Continue(())
             },
         );
-        assert_eq!(summary.dispatched, 9);
+        assert_eq!(summary.dispatched, 10);
         assert_eq!(rects, 1, "{:?}", summary.diagnostics);
     }
 }
