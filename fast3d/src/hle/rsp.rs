@@ -1241,6 +1241,15 @@ pub(crate) fn ensure_pair_open(
             .framebuffers
             .targets
             .record(rdp.color_image.addr, layout, height, false);
+    } else if (rdp.other_mode_h >> 20) & 3 == 3 {
+        // A depth clear: the memory holds depth again.
+        rec.framebuffers.targets.forget_color(rdp.color_image.addr);
+    } else {
+        // Color drawn into the depth buffer's memory (see validate_depth_alias).
+        let _ = rec
+            .framebuffers
+            .targets
+            .record(rdp.color_image.addr, layout, height, false);
     }
     if let Some(address) = rdp.depth_image {
         let _ = rec.framebuffers.targets.record(
@@ -1254,9 +1263,16 @@ pub(crate) fn ensure_pair_open(
             true,
         );
     }
-    if !rec.paired || rdp.color_changed || rdp.depth_changed {
+    // A fill into the depth buffer clears it; any other draw there is color (see
+    // validate_depth_alias), so the two never share a pair.
+    let is_depth_clear =
+        rdp.depth_image == Some(rdp.color_image.addr) && (rdp.other_mode_h >> 20) & 3 == 3;
+    if !rec.paired
+        || rdp.color_changed
+        || rdp.depth_changed
+        || scene.framebuffer_pairs[rec.cur_pair].is_depth_clear != is_depth_clear
+    {
         let depth_image = rdp.depth_image;
-        let is_depth_clear = depth_image == Some(rdp.color_image.addr);
         scene.framebuffer_pairs.push(FramebufferPair {
             color_image_epoch: rec.framebuffers.color_image_epoch,
             color_image: rdp.color_image,
@@ -1329,13 +1345,18 @@ pub(crate) fn validate_depth_alias(
     diags: &mut Vec<crate::diag::Diagnostic>,
     pc: u64,
 ) -> Option<()> {
-    if rdp.color_image_set
-        && rdp.depth_image == Some(rdp.color_image.addr)
-        && !(fill
-            && (rdp.other_mode_h >> 20) & 3 == 3
-            && rdp.color_image.fmt == 0
-            && rdp.color_image.siz == 2)
-    {
+    // A color draw into the depth buffer's memory is fine while it doesn't use depth: Majora's
+    // Mask saves the frame there for the pause screen, in copy mode. One that tests or writes
+    // depth would read and write the same memory as both, which fast3d can't model.
+    // A fill-mode fill there is a depth clear, which needs a 16-bit RGBA image.
+    let cycle = (rdp.other_mode_h >> 20) & 3;
+    let supported = if cycle == 3 {
+        fill && rdp.color_image.fmt == 0 && rdp.color_image.siz == 2
+    } else {
+        cycle == crate::hle::consts::G_CYC_COPY
+            || rdp.other_mode_l & (n64_gbi::consts::Z_CMP | n64_gbi::consts::Z_UPD) == 0
+    };
+    if rdp.color_image_set && rdp.depth_image == Some(rdp.color_image.addr) && !supported {
         diags.push(crate::diag::Diagnostic {
             at: pc,
             kind: crate::diag::DiagKind::UnsupportedDepthAlias {

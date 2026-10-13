@@ -374,3 +374,104 @@ fn obj_load_txtr_loads_a_block_and_caches_by_status() {
     let (_, second, r) = run_loads(4);
     assert_eq!(r.rdp.tex_image.3, second);
 }
+
+/// Majora's Mask's pause screen: the frame is saved into the depth buffer's memory with
+/// `gSPBgRectCopy`, then drawn back from there as the paused background. The save is color
+/// in depth memory (it doesn't use depth); a later depth clear makes that memory depth again.
+#[test]
+fn bg_copy_saves_and_restores_through_depth_memory() {
+    const ZBUF: u32 = 0x0020_0000;
+    const SHOWN: u32 = 0x0030_0000;
+    let full = |image| {
+        background(
+            image,
+            (320 << 2, 240 << 2),
+            (0, 0, 320 << 2, 240 << 2),
+            0,
+            2,
+            0,
+            6 << 2,
+        )
+    };
+    let build = |b: &mut DlBuilder, clear_after_save: bool| {
+        let save = b.bytes(8, &full(CIMG));
+        let restore = b.bytes(8, &full(ZBUF));
+        let mut commands = vec![
+            gdp_set_depth_image(ZBUF),
+            gdp_set_color_image(0, 2, 320, ZBUF),
+            gdp_set_cycle_type(3),
+            gdp_set_fill_color(0xfffc_fffc),
+            gdp_fill_rectangle(0, 0, 1276, 956),
+            gdp_set_color_image(0, 2, 320, CIMG),
+            gdp_set_fill_color(0xf801_f801),
+            gdp_fill_rectangle(0, 0, 1276, 956),
+            gdp_set_color_image(0, 2, 320, ZBUF),
+        ];
+        commands.extend(copy_setup());
+        commands.push(((G_BG_COPY as u32) << 24, save));
+        if clear_after_save {
+            commands.extend([
+                gdp_set_cycle_type(3),
+                gdp_set_fill_color(0xfffc_fffc),
+                gdp_fill_rectangle(0, 0, 1276, 956),
+            ]);
+            commands.extend(copy_setup());
+        }
+        commands.push(gdp_set_color_image(0, 2, 320, SHOWN));
+        commands.push(((G_BG_COPY as u32) << 24, restore));
+        let mut all = vec![gdp_set_scissor(0, 0, 0, 1280, 960)];
+        all.extend(commands);
+        all.push(END);
+        all
+    };
+
+    let r = run(|b| build(b, false));
+    assert!(r.diags.is_empty(), "{:?}", r.diags);
+    let (device, queue) = crate::render::headless_device_forced_fallback();
+    let mut renderer = crate::render::SceneRenderer::new(
+        &device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        320,
+        240,
+        false,
+    );
+    renderer.render_into_store(&device, &queue, &r.scene, crate::ClearPolicy::PerFrame);
+    let pixels = crate::tests::common::pixels_from_render(
+        &device,
+        &queue,
+        320,
+        240,
+        wgpu::TextureFormat::Rgba8Unorm,
+        |view| {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            renderer.scanout(
+                &device,
+                &mut encoder,
+                view,
+                crate::render::workload::TargetId::Guest(SHOWN.into()),
+                None,
+            );
+            queue.submit(Some(encoder.finish()));
+        },
+    );
+    assert_eq!(&pixels[(120 * 320 + 160) * 4..][..3], &[255, 0, 0]);
+    assert!(
+        renderer.diagnostics.is_empty(),
+        "{:?}",
+        renderer.diagnostics
+    );
+
+    // Cleared as depth again, the memory can't be read as color.
+    let r = run(|b| build(b, true));
+    assert!(
+        r.diags.iter().any(|d| matches!(
+            d.kind,
+            crate::DiagKind::UnsupportedFramebufferAccess {
+                reason: crate::FramebufferAccess::DepthTexture,
+                ..
+            }
+        )),
+        "{:?}",
+        r.diags
+    );
+}

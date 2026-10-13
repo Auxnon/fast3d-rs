@@ -97,14 +97,19 @@ impl TargetDescriptors {
             depth: false,
         };
         let range = request.range()?;
+        // Color drawn into a depth buffer's memory (and not cleared as depth since) is what that
+        // memory holds, so the depth descriptor there doesn't count.
+        let shadowed =
+            |image: &ImageDescriptor| image.depth && self.0.contains_key(&(image.address, false));
         let matches: Vec<_> = self
             .0
             .values()
             .copied()
             .filter(|image| {
-                image
-                    .range()
-                    .is_ok_and(|known| range.start < known.end && known.start < range.end)
+                !shadowed(image)
+                    && image
+                        .range()
+                        .is_ok_and(|known| range.start < known.end && known.start < range.end)
             })
             .collect();
         let fail = |reason| DiagKind::UnsupportedFramebufferAccess { address, reason };
@@ -130,6 +135,7 @@ impl TargetDescriptors {
         let view = source.range()?;
         if self.0.values().any(|other| {
             *other != source
+                && !shadowed(other)
                 && other
                     .range()
                     .is_ok_and(|range| view.start < range.end && range.start < view.end)
@@ -140,6 +146,11 @@ impl TargetDescriptors {
             return Err(fail(FramebufferAccess::Extent));
         }
         Ok(Some(source))
+    }
+
+    /// Forgets color drawn into `address` once it's cleared as a depth buffer again.
+    pub(crate) fn forget_color(&mut self, address: u64) {
+        self.0.remove(&(address, false));
     }
 
     pub(crate) fn get(&self, address: u64, depth: bool) -> Option<ImageDescriptor> {

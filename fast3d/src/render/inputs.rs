@@ -119,7 +119,9 @@ impl TargetInputs {
         }
         let (width, height) = self.output_extent;
         if let TargetId::Guest(address) = self.id {
-            if !self.depth_clear {
+            if self.depth_clear {
+                descriptors.forget_color(address);
+            } else {
                 let _ = descriptors.record(
                     address,
                     super::framebuffers::ImageLayout {
@@ -265,11 +267,11 @@ impl<'a> RenderInputs<'a> {
                             fmt: target.color_image.fmt,
                             siz: target.color_image.siz,
                         };
-                        if !target.depth_clear {
-                            if let Err(kind) = descriptors.record(address, layout, h, false) {
-                                diagnostics.push(crate::Diagnostic { at: pc, kind });
-                                valid = false;
-                            }
+                        if target.depth_clear {
+                            descriptors.forget_color(address);
+                        } else if let Err(kind) = descriptors.record(address, layout, h, false) {
+                            diagnostics.push(crate::Diagnostic { at: pc, kind });
+                            valid = false;
                         }
                     }
                     let mut inputs = TargetInputs {

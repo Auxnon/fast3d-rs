@@ -96,7 +96,7 @@ impl Workload {
                 color_image: pair.color_image,
                 depth_image: pair.depth_image,
                 logical_extent: super::pair_render_extent(pair),
-                depth_clear: pair.depth_image == Some(pair.color_image.addr),
+                depth_clear: pair.is_depth_clear,
                 operations: Vec::new(),
             };
             for operation in operations {

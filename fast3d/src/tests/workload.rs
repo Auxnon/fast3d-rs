@@ -372,7 +372,7 @@ fn normalization_keeps_zero_depth_image_address() {
 
 #[test]
 fn depth_alias_fill_requires_supported_layout_and_cycle() {
-    for (fmt, size, cycle) in [(0, 2, 0), (0, 2, 1), (0, 2, 2), (0, 3, 3), (1, 2, 3)] {
+    for (fmt, size, cycle) in [(0, 3, 3), (1, 2, 3)] {
         let mut b = DlBuilder::new();
         b.list(
             "main",
@@ -393,5 +393,44 @@ fn depth_alias_fill_requires_supported_layout_and_cycle() {
             result.diags[0].kind,
             crate::DiagKind::UnsupportedDepthAlias { address: 0x2000 }
         ));
+    }
+}
+
+/// Outside fill mode, a draw into the depth buffer's memory that doesn't use depth is color
+/// (Majora's Mask saves the paused frame there); one that tests or writes depth is rejected.
+#[test]
+fn depth_alias_color_draws_need_depth_unused() {
+    for (cycle, render_mode, accepted) in [
+        (0, 0, true),
+        (1, 0, true),
+        (2, 0, true),
+        (0, n64_gbi::consts::Z_CMP, false),
+        (1, n64_gbi::consts::Z_UPD, false),
+    ] {
+        let mut b = DlBuilder::new();
+        b.list(
+            "main",
+            &[
+                gdp_set_depth_image(0x2000),
+                gdp_set_color_image(0, 2, 320, 0x2000),
+                gdp_set_scissor(0, 0, 0, 1280, 960),
+                gdp_set_cycle_type(cycle),
+                gdp_set_other_mode_l(0, 32, render_mode),
+                gdp_fill_rectangle(0, 0, 4, 4),
+                gsp_enddl(),
+            ],
+        );
+        let built = b.finish("main");
+        let result = crate::hle::interpret_rdram(&built.rdram, built.entry);
+        let rejected = result.diags.iter().any(|d| {
+            matches!(
+                d.kind,
+                crate::DiagKind::UnsupportedDepthAlias { address: 0x2000 }
+            )
+        });
+        assert_eq!(rejected, !accepted, "cycle {cycle}: {:?}", result.diags);
+        if accepted {
+            assert!(!result.scene.framebuffer_pairs[0].is_depth_clear);
+        }
     }
 }

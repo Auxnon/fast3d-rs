@@ -563,6 +563,8 @@ fn validate_conversion_modes(
     let mode_error = if rdp.other_mode_h & crate::hle::consts::G_CK_KEY != 0 {
         Some(crate::diag::DiagKind::UnsupportedChromaKey)
     } else if rdp.texture_conversion_set
+        // Copy mode bypasses the texture filter and its conversion.
+        && (rdp.other_mode_h >> 20) & 3 != crate::hle::consts::G_CYC_COPY
         && rdp.other_mode_h & (7 << 9) != crate::hle::consts::G_TC_FILT
     {
         Some(crate::diag::DiagKind::UnsupportedTextureConversion)
