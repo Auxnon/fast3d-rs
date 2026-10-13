@@ -215,8 +215,21 @@ pub fn walk<M: Rdram>(
     format: DataFormat,
     observer: &mut dyn WalkObserver,
 ) -> WalkSummary {
+    walk_with_limit(mem, entry, microcode, format, MAX_DISPATCHES, observer)
+}
+
+/// [`walk`] with a different dispatch cap, for display lists longer than [`MAX_DISPATCHES`].
+pub fn walk_with_limit<M: Rdram>(
+    mem: M,
+    entry: u64,
+    microcode: Microcode,
+    format: DataFormat,
+    limit: u32,
+    observer: &mut dyn WalkObserver,
+) -> WalkSummary {
     let mut adapter = CappedObserver {
         observer,
+        limit,
         capped: false,
     };
     let result = crate::hle::interpret(mem, entry, microcode.into(), format, Some(&mut adapter));
@@ -237,13 +250,14 @@ pub fn walk<M: Rdram>(
 
 struct CappedObserver<'a> {
     observer: &'a mut dyn WalkObserver,
+    limit: u32,
     capped: bool,
 }
 
 impl WalkObserver for CappedObserver<'_> {
     fn command(&mut self, step: WalkStep<'_>) -> ControlFlow<()> {
         self.observer.command(step)?;
-        if step.seq + 1 >= MAX_DISPATCHES {
+        if step.seq + 1 >= self.limit {
             self.capped = true;
             ControlFlow::Break(())
         } else {
