@@ -80,6 +80,8 @@ pub struct Rsp {
     pub(crate) point_lighting: bool,
     /// Whether the microcode skips near-plane clipping (`.NoN`); marks loaded vertices.
     pub(crate) no_near_clip: bool,
+    /// The vertex (a `scene.raw_pos` index) tested by an open `gEXVertexZTest` span.
+    pub(crate) z_test_vertex: Option<u32>,
     /// S2DEX2 `G_OBJ_RENDERMODE` flags.
     pub obj_render_mode: u32,
     /// S2DEX2's DMEM buffer for object structs (stale bytes persist between loads).
@@ -145,6 +147,7 @@ impl Default for Rsp {
             point_params: [PointLightParams::default(); 8],
             point_lighting: false,
             no_near_clip: false,
+            z_test_vertex: None,
             obj_render_mode: 0,
             s2d_struct: [0; 256],
             s2d_statuses: [0; 4],
@@ -828,12 +831,14 @@ impl Rsp {
         } else {
             CullKind::None
         };
+        let z_test_vertex = self.z_test_vertex;
         let coalesces = |run: &DrawRun| {
             run.cull == kind
                 && run.material_index == material_index
                 && run.render_mode_index == render_mode_index
                 && run.fog_color == fog_color
                 && run.prim_depth == prim_depth
+                && run.z_test_vertex == z_test_vertex
         };
         let index_start = scene.indices.len() as u32;
         match pair_target {
@@ -844,6 +849,7 @@ impl Rsp {
                     render_mode_index,
                     fog_color,
                     prim_depth,
+                    z_test_vertex,
                     cull: kind,
                     index_count: 3,
                     index_start,
@@ -856,6 +862,7 @@ impl Rsp {
                     render_mode_index,
                     fog_color,
                     prim_depth,
+                    z_test_vertex,
                     cull: kind,
                     index_count: 3,
                     index_start,
@@ -865,6 +872,17 @@ impl Rsp {
         scene.indices.push(self.cache_global_index[a as usize]);
         scene.indices.push(self.cache_global_index[b as usize]);
         scene.indices.push(self.cache_global_index[c as usize]);
+    }
+
+    /// `gEXVertexZTest`: the triangles until [`Self::end_vertex_z_test`] draw only if the
+    /// vertex in `slot` passes the depth test, as RT64 decides it on the GPU.
+    pub(crate) fn begin_vertex_z_test(&mut self, slot: usize) {
+        self.z_test_vertex = Some(self.cache_global_index[slot % RSP_MAX_VERTICES]);
+    }
+
+    /// `gEXEndVertexZTest`.
+    pub(crate) fn end_vertex_z_test(&mut self) {
+        self.z_test_vertex = None;
     }
 
     /// gsSPTexture: set the texture scaling state.
@@ -1643,6 +1661,7 @@ mod draw_runs_tests {
             vec![DrawRun {
                 fog_color: [0; 4],
                 prim_depth: Default::default(),
+                z_test_vertex: None,
                 material_index: 0,
                 render_mode_index: 0,
                 cull: CullKind::None,
@@ -1663,6 +1682,7 @@ mod draw_runs_tests {
             vec![DrawRun {
                 fog_color: [0; 4],
                 prim_depth: Default::default(),
+                z_test_vertex: None,
                 material_index: 0,
                 render_mode_index: 0,
                 cull: CullKind::Cull,
@@ -1685,6 +1705,7 @@ mod draw_runs_tests {
                 DrawRun {
                     fog_color: [0; 4],
                     prim_depth: Default::default(),
+                    z_test_vertex: None,
                     material_index: 0,
                     render_mode_index: 0,
                     cull: CullKind::None,
@@ -1694,6 +1715,7 @@ mod draw_runs_tests {
                 DrawRun {
                     fog_color: [0; 4],
                     prim_depth: Default::default(),
+                    z_test_vertex: None,
                     material_index: 0,
                     render_mode_index: 0,
                     cull: CullKind::Cull,
@@ -1713,6 +1735,7 @@ mod draw_runs_tests {
             vec![DrawRun {
                 fog_color: [0; 4],
                 prim_depth: Default::default(),
+                z_test_vertex: None,
                 material_index: 5,
                 render_mode_index: 7,
                 cull: CullKind::None,

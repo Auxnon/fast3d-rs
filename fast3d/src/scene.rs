@@ -24,6 +24,9 @@ pub struct DrawRun {
     pub render_mode_index: u32,
     pub fog_color: [u8; 4],
     pub prim_depth: PrimitiveDepth,
+    /// The vertex (a `scene.raw_pos` index) of an enclosing `gEXVertexZTest`: the run draws
+    /// only if that vertex passes the depth test against the depth buffer.
+    pub z_test_vertex: Option<u32>,
     pub cull: CullKind,
     pub index_count: u32,
     pub index_start: u32,

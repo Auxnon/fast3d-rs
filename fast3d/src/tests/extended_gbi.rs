@@ -422,8 +422,10 @@ fn hook_display_list_calls_and_branch_list_jumps() {
     assert_eq!(r.rdp.prim, [0x65, 0x43, 0x21, 0xff]);
 }
 
+/// A `gEXVertexZTest` span marks its triangles with the test vertex (`slot` mapped to its
+/// `scene.raw_pos` index); the renderer draws them only if that vertex passes the depth test.
 #[test]
-fn vertex_z_test_spans_drop_triangles() {
+fn vertex_z_test_spans_mark_triangles() {
     let r = run(
         |b| {
             let vtx = b.vertices(&[white(0, 0), white(100, 0), white(0, 100)]);
@@ -431,7 +433,7 @@ fn vertex_z_test_spans_drop_triangles() {
             commands.extend(shade_triangle_setup());
             commands.extend([
                 gsp_vertex(0, 3, vtx),
-                ex(0x0A, 0),
+                ex(0x0A, 1),
                 gsp_1triangle(0, 1, 2),
                 gsp_1triangle(0, 2, 1),
                 ex(0x0B, 0),
@@ -442,12 +444,19 @@ fn vertex_z_test_spans_drop_triangles() {
         },
         GbiUcode::F3dzex2,
     );
-    assert_eq!(r.scene.indices.len(), 3);
-    assert_eq!(r.dropped_runs, 2);
-    assert_eq!(
-        r.diags.iter().map(|d| d.kind).collect::<Vec<_>>(),
-        vec![DiagKind::UnsupportedExtendedCommand { command: 0x0A }]
-    );
+    assert!(r.diags.is_empty(), "{:?}", r.diags);
+    assert_eq!(r.dropped_runs, 0);
+    let runs: Vec<_> = r
+        .scene
+        .framebuffer_pairs
+        .iter()
+        .flat_map(|p| &p.ops)
+        .filter_map(|op| match op {
+            crate::hle::SceneOp::Tris(run) => Some((run.index_count, run.z_test_vertex)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(runs, vec![(6, Some(1)), (3, None)]);
 }
 
 #[test]

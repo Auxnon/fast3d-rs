@@ -7,8 +7,9 @@
 //!
 //! Interpolation (matrix groups), widescreen alignment, refresh rate and upscaling hints have
 //! no effect on a single 4:3 frame and are accepted as no-ops. Commands that draw or change
-//! render state are implemented; the vertex Z test (`gEXVertexZTest`, used for occlusion
-//! tests such as lens flares) needs a depth readback and drops the geometry it guards.
+//! render state are implemented. The vertex Z test (`gEXVertexZTest`, used for occlusion tests
+//! such as light glows) marks the triangles it guards; the renderer draws them only where the
+//! test vertex passes the depth test.
 
 use crate::hle::math::Mat4;
 use crate::hle::rsp::{Rsp, Scissor};
@@ -127,8 +128,6 @@ type PrimState = ([u8; 4], f32, f32);
 pub(crate) struct ExtendedState {
     /// The opcode chosen by `gEXEnable`, or `None` while disabled.
     pub opcode: Option<u8>,
-    /// Inside a `gEXVertexZTest` .. `gEXEndVertexZTest` span.
-    pub z_test: bool,
     viewport: Stack<([f32; 3], [f32; 3])>,
     scissor: Stack<(Scissor, bool)>,
     other_mode: Stack<(u32, u32)>,

@@ -256,7 +256,7 @@ fn render_and_read_center_channel(
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim: [1.0, 1.0, 1.0, 1.0],
         env: [0.0, 0.0, 0.0, 1.0],
@@ -284,6 +284,7 @@ fn render_and_read_center_channel(
         draw_runs: vec![crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -573,7 +574,7 @@ fn renders_red_triangle_center_and_clear_corner() {
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim: [1.0, 1.0, 1.0, 1.0],
         env: [0.0, 0.0, 0.0, 1.0],
@@ -598,6 +599,7 @@ fn renders_red_triangle_center_and_clear_corner() {
         draw_runs: vec![crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -784,7 +786,7 @@ fn depth_test_hides_the_farther_triangle() {
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim: [1.0, 1.0, 1.0, 1.0],
         env: [0.0, 0.0, 0.0, 1.0],
@@ -813,6 +815,7 @@ fn depth_test_hides_the_farther_triangle() {
         draw_runs: vec![crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -1435,6 +1438,7 @@ fn cull_back_mode_keeps_n64_front_drops_n64_back() {
     let runs = [crate::hle::DrawRun {
         fog_color: [0; 4],
         prim_depth: Default::default(),
+        z_test_vertex: None,
         material_index: 0,
         render_mode_index: 0,
         cull: crate::hle::CullKind::Cull,
@@ -1466,7 +1470,7 @@ fn cull_back_mode_keeps_n64_front_drops_n64_back() {
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim: [1.0, 1.0, 1.0, 1.0],
         env: [0.0, 0.0, 0.0, 1.0],
@@ -2801,6 +2805,7 @@ fn build_two_material_two_run_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -2810,6 +2815,7 @@ fn build_two_material_two_run_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 1,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -2979,6 +2985,7 @@ fn build_two_material_two_run_textured_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -2988,6 +2995,7 @@ fn build_two_material_two_run_textured_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 1,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -3146,6 +3154,7 @@ fn build_dualsrc_over_green_scene(mux_low: u32, red_alpha: u8) -> crate::hle::Sc
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -3155,6 +3164,7 @@ fn build_dualsrc_over_green_scene(mux_low: u32, red_alpha: u8) -> crate::hle::Sc
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 1,
             render_mode_index: 1,
             cull: crate::hle::CullKind::None,
@@ -3524,6 +3534,7 @@ fn build_decal_smoke_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -3533,6 +3544,7 @@ fn build_decal_smoke_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 1,
             render_mode_index: 1,
             cull: crate::hle::CullKind::None,
@@ -3695,7 +3707,7 @@ fn render_two_texture_center(
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim,
         env: [0.0, 0.0, 0.0, 1.0],
@@ -3778,6 +3790,7 @@ fn render_two_texture_center(
         draw_runs: vec![crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -4134,7 +4147,7 @@ fn render_lod_center(
         frame: [0, 0, W, H],
         is_rect: 0,
         prim_depth: -1.0,
-        _pad: [0; 2],
+        vertex_z_test: [0; 2],
         alpha_threshold: 0.0,
         prim: [0.0, 0.0, 0.0, 1.0],
         env: [0.0, 0.0, 0.0, 1.0],
@@ -4228,6 +4241,7 @@ fn render_lod_center(
         draw_runs: vec![crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,

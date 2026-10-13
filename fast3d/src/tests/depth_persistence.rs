@@ -1339,3 +1339,57 @@ fn no_near_clip_clamps_depth_per_fragment() {
         );
     }
 }
+
+/// `gEXVertexZTest` (Majora's Mask's light glows): a red quad draws only if the test vertex is
+/// in front of the scene depth at its pixel. A blue quad at depth 0.1 covers the left half;
+/// a test vertex at depth 0.5 fails behind it and passes on the empty right half.
+#[test]
+fn vertex_z_test_draws_only_when_the_test_vertex_is_visible() {
+    const EX: u32 = 0x64;
+    let (device, queue, _) = crate::render::headless_device();
+    for (test_x, drawn) in [(240i16, true), (80, false)] {
+        let mut b = DlBuilder::new();
+        let mut dl = vec![(0xE052_5464, (1 << 28) | EX)]; // gEXEnable
+        dl.extend(setup(&mut b, A, Z));
+        fill(&mut dl, 0xfffc_fffc, [0, 0, 319, 239]);
+        dl.push(gdp_set_color_image(0, 2, 320, A));
+        fill(&mut dl, 0x0001_0001, [0, 0, 319, 239]);
+        quad(&mut b, &mut dl, [0, 0, 160, 240], -102, BLUE);
+        let test = b.vertices(&[VtxColored {
+            x: test_x - 160,
+            y: 0,
+            z: 0,
+            flag: 0,
+            s: 0,
+            t: 0,
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }]);
+        dl.extend([gsp_vertex(8, 1, test), ((EX << 24) | 0x0A, 8)]);
+        quad(&mut b, &mut dl, [200, 80, 280, 160], -200, RED);
+        dl.push(((EX << 24) | 0x0B, 0));
+        let built = finish(b, dl);
+        let result = crate::hle::interp::interpret(
+            crate::hle::mem::RdramImage::new(&built.rdram),
+            built.entry as u64,
+            crate::hle::gbi::GbiUcode::F3dzex2,
+            crate::hle::mem::GbiDataFormat::Fixed,
+            None,
+        );
+        assert!(result.diags.is_empty(), "{:?}", result.diags);
+        let mut renderer = SceneRenderer::new(&device, FORMAT, 320, 240, false);
+        renderer.render_into_store(&device, &queue, &result.scene, ClearPolicy::PerFrame);
+        let pixels = scanout(&device, &queue, &mut renderer, A);
+        let pixel = |x: usize, y: usize| -> [u8; 4] {
+            pixels[(y * 320 + x) * 4..][..4].try_into().unwrap()
+        };
+        assert_eq!(
+            pixel(240, 120),
+            if drawn { RED } else { BLACK },
+            "test vertex x {test_x}"
+        );
+        assert_eq!(pixel(80, 120), BLUE);
+    }
+}

@@ -199,7 +199,9 @@ pub struct CombinerUniform {
     /// Normalized G_SETPRIMDEPTH z for G_ZS_PRIM draws, or negative to keep the primitive's
     /// own depth. The vertex shader replaces clip z with `prim_depth * w`, as RT64 does.
     pub prim_depth: f32,
-    pub _pad: [u32; 2],
+    /// `gEXVertexZTest`: the test vertex's index plus one (0 for none), and 1 when the draw
+    /// also compares its own depth (`Z_CMP`). Such draws run in the depth-reading pass.
+    pub vertex_z_test: [u32; 2],
 }
 const _: () = assert!(std::mem::size_of::<CombinerUniform>() == 192);
 
@@ -309,7 +311,7 @@ impl CombinerUniform {
             frame: [0; 4],
             is_rect: 0,
             prim_depth: -1.0,
-            _pad: [0; 2],
+            vertex_z_test: [0; 2],
         }
     }
 
@@ -397,7 +399,7 @@ impl CombinerUniform {
             frame: [0; 4],
             is_rect: 1,
             prim_depth: -1.0,
-            _pad: [0; 2],
+            vertex_z_test: [0; 2],
         }
     }
 
@@ -434,7 +436,7 @@ impl CombinerUniform {
             frame: [0; 4],
             is_rect: 1,
             prim_depth: -1.0,
-            _pad: [0; 2],
+            vertex_z_test: [0; 2],
         }
     }
 }
@@ -467,8 +469,9 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "{prefix}{}\n{body}\n{decal}",
-                include_str!("combiner_prelude.wgsl")
+                "{prefix}{}\n{body}\n{}\n{decal}",
+                include_str!("combiner_prelude.wgsl"),
+                include_str!("depth_read.wgsl")
             );
             let module = wgpu::naga::front::wgsl::parse_str(&source)
                 .unwrap_or_else(|err| panic!("{}", err.emit_to_string(&source)));
@@ -859,9 +862,10 @@ impl TexturedPipeline {
             label: Some("skeleton-ubershader"),
             source: wgpu::ShaderSource::Wgsl(
                 format!(
-                    "{}\n{}\n{}",
+                    "{}\n{}\n{}\n{}",
                     COMBINER_PRELUDE,
                     include_str!("skeleton.wgsl"),
+                    include_str!("depth_read.wgsl"),
                     include_str!("decal.wgsl")
                 )
                 .into(),
@@ -988,18 +992,31 @@ impl TexturedPipeline {
         // group2_depth_bgl: the scene depth buffer bound as a SAMPLED `texture_depth_2d` (E1).
         // sample_type Depth, no sampler entry (depth is read via `textureLoad` in E2). Used only by
         // the decal pipeline layout; the decal pass binds the prior depth pass's output here.
+        // Binding 1 is the RSP-process output, for a gEXVertexZTest's test vertex.
         let group2_depth_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("textured-group2-depth-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(48),
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1216,9 +1233,10 @@ impl TexturedPipeline {
                 label: Some("dualsrc-blender"),
                 source: wgpu::ShaderSource::Wgsl(
                     format!(
-                        "enable dual_source_blending;\n{}\n{}\n{}",
+                        "enable dual_source_blending;\n{}\n{}\n{}\n{}",
                         COMBINER_PRELUDE,
                         include_str!("blender_dualsrc.wgsl"),
+                        include_str!("depth_read.wgsl"),
                         include_str!("decal_dual.wgsl")
                     )
                     .into(),

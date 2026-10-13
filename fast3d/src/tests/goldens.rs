@@ -1513,6 +1513,7 @@ fn build_decal_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 0,
             render_mode_index: 0,
             cull: crate::hle::CullKind::None,
@@ -1522,6 +1523,7 @@ fn build_decal_scene() -> crate::hle::Scene {
         crate::hle::DrawRun {
             fog_color: [0; 4],
             prim_depth: Default::default(),
+            z_test_vertex: None,
             material_index: 1,
             render_mode_index: 1,
             cull: crate::hle::CullKind::None,

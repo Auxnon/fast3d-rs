@@ -478,6 +478,7 @@ mod phase2_tests {
             vec![DrawRun {
                 fog_color: [0; 4],
                 prim_depth: Default::default(),
+                z_test_vertex: None,
                 material_index: 0,
                 render_mode_index: 0,
                 cull: CullKind::None,
@@ -519,6 +520,7 @@ mod phase2_tests {
                 DrawRun {
                     fog_color: [0; 4],
                     prim_depth: Default::default(),
+                    z_test_vertex: None,
                     material_index: 0,
                     render_mode_index: 0,
                     cull: CullKind::Cull,
@@ -528,6 +530,7 @@ mod phase2_tests {
                 DrawRun {
                     fog_color: [0; 4],
                     prim_depth: Default::default(),
+                    z_test_vertex: None,
                     material_index: 0,
                     render_mode_index: 0,
                     cull: CullKind::None,

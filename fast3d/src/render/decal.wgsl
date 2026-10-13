@@ -1,15 +1,8 @@
-// decal.wgsl — base decal fragment entry (E2): combiner + in-shader Z occlusion + coplanar discard.
-// Assembled in lib.rs AFTER combiner_prelude.wgsl + skeleton.wgsl (it adds the decal-only entry
-// `fs_decal` alongside skeleton's non-decal `fs_main`). Bound to the Replace/AlphaOver decal
-// pipelines (decal layout g0+g1+g2). The decal pass has NO depth attachment, so the ROP cannot
-// do the Z test; instead we sample the prior depth pass's output (`@group(2)`) and do the
-// ZMODE_DEC test in-shader:
-//   - occlusion (Z_CMP): a decal strictly BEHIND the stored scene surface is hidden;
-//   - coplanar bind: paint only where the decal lies ON (within tolerance of) that surface, so a
-//     coplanar decal shows WITHOUT z-fighting.
-// NDC-space epsilon (a small constant), NOT the N64's hardware-encoded exponent bands [IMP11].
-
-@group(2) @binding(0) var depth_tex: texture_depth_2d;
+// decal.wgsl — base depth-reading fragment entry (E2): combiner + depth_read.wgsl's in-shader
+// tests (ZMODE_DEC occlusion + coplanar discard, or a gEXVertexZTest).
+// Assembled in lib.rs AFTER combiner_prelude.wgsl + skeleton.wgsl + depth_read.wgsl (it adds the
+// depth-reading entry `fs_decal` alongside skeleton's `fs_main`). Bound to the Replace/AlphaOver
+// decal pipelines (decal layout g0+g1+g2), which run in the pass with NO depth attachment.
 
 @fragment
 fn fs_decal(in: VsOut) -> @location(0) vec4<f32> {
@@ -23,22 +16,6 @@ fn fs_decal(in: VsOut) -> @location(0) vec4<f32> {
     }
     alpha_discard(r, in.clip_position.xy);
 
-    // ── ZMODE_DEC in-shader test against the scene depth written by pass 1. ──
-    // `in.clip_position` is the rasterizer @builtin(position): .xy are framebuffer pixel coords,
-    // .z is the NDC depth (post perspective-divide), matching the Depth32Float buffer.
-    let coord = vec2<i32>(i32(in.clip_position.x), i32(in.clip_position.y));
-    let sampled = textureLoad(depth_tex, coord, 0);
-    let pixel_z = in.clip_position.z;
-    let eps = 1.0e-4;
-    // Occlusion (Z_CMP): a strictly-nearer surface in the depth buffer hides the decal.
-    if (pixel_z > sampled + eps) {
-        discard;
-    }
-    // Coplanar bind: discard fragments NOT coplanar with the stored surface (per-pixel slope
-    // tolerance dz absorbs depth gradient on tilted surfaces; floored at eps for flat ones).
-    let dz = abs(dpdx(pixel_z)) + abs(dpdy(pixel_z));
-    if (abs(pixel_z - sampled) > max(dz, eps)) {
-        discard;
-    }
+    depth_read_tests(in);
     return vec4<f32>(rgb, r.alpha);
 }

@@ -301,6 +301,13 @@ impl<'a> RenderInputs<'a> {
                                         CombinerUniform::from_run(mat, mode, run.fog_color);
                                     uniform.inv_tex_size = super::triangle_inv_tex_size(mat);
                                     uniform.set_prim_depth(mode, run.prim_depth);
+                                    // Without a depth buffer there's nothing to test against,
+                                    // so the guarded triangles draw.
+                                    let vertex_z_test = run.z_test_vertex.filter(|_| any_depth);
+                                    if let Some(vertex) = vertex_z_test {
+                                        uniform.vertex_z_test =
+                                            [vertex + 1, u32::from(mode.z_test)];
+                                    }
                                     (
                                         DrawInputs::Tris {
                                             cull: run.cull,
@@ -310,8 +317,9 @@ impl<'a> RenderInputs<'a> {
                                             mode: TriangleMode {
                                                 z_test: any_depth && mode.z_test,
                                                 z_write: any_depth && mode.z_write,
-                                                read_depth: any_depth
-                                                    && mode.z_mode == ZMode::Decal,
+                                                read_depth: (any_depth
+                                                    && mode.z_mode == ZMode::Decal)
+                                                    || vertex_z_test.is_some(),
                                                 fallback_class: mode.fallback_class,
                                                 blend_class: mode.blend_class,
                                             },

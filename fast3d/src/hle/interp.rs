@@ -333,7 +333,6 @@ pub(crate) fn interpret_profiled<M: Rdram>(
     let mut rejected = false;
     // RT64 extended GBI, enabled by a G_SPNOOP hook.
     let mut ext = crate::hle::extended::ExtendedState::default();
-    let mut z_test_reported = false;
 
     let mut pc: u64 = entry;
     let mut return_stack: Vec<u64> = Vec::new();
@@ -694,18 +693,8 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                             );
                         }
                     }
-                    ex::VERTEXZTEST => {
-                        // Needs the depth buffer; the guarded geometry is dropped instead.
-                        ext.z_test = true;
-                        if !z_test_reported {
-                            z_test_reported = true;
-                            diags.push(Diagnostic {
-                                at: pc,
-                                kind: DiagKind::UnsupportedExtendedCommand { command: sub },
-                            });
-                        }
-                    }
-                    ex::ENDVERTEXZTEST => ext.z_test = false,
+                    ex::VERTEXZTEST => rsp.begin_vertex_z_test((words[0].w1 & 0xFF) as usize),
+                    ex::ENDVERTEXZTEST => rsp.end_vertex_z_test(),
                     // Interpolation and widescreen alignment.
                     ex::MATRIXGROUP
                     | ex::EDITGROUPBYADDRESS
@@ -722,19 +711,6 @@ pub(crate) fn interpret_profiled<M: Rdram>(
                     }
                 }
                 pc = next_pc;
-                break 'dispatch;
-            }
-            if ext.z_test
-                && ucode.is_f3dex2_family()
-                && matches!(
-                    op,
-                    crate::hle::consts::G_TRI1
-                        | crate::hle::consts::G_TRI2
-                        | crate::hle::consts::G_QUAD
-                )
-            {
-                dropped_runs += 1;
-                pc = walk_try!(Command, checked_span(pc, stride));
                 break 'dispatch;
             }
             if ucode.rdphalf1_is_data() && op == crate::hle::consts::G_RDPHALF_1 {

@@ -83,8 +83,8 @@ struct Combiner {
     frame:           vec4<u32>, // serial, seed, raster viewport width and height
     is_rect:         u32,
     prim_depth:      f32,       // G_ZS_PRIM depth (0..1), or negative for the primitive's own z
-    _pad1:           u32,
-    _pad2:           u32,
+    z_test_vertex:   u32,       // gEXVertexZTest vertex index + 1, or 0 for none
+    z_test_compare:  u32,       // 1 when a z-tested draw also compares its own depth (Z_CMP)
 };
 
 @group(0) @binding(0) var tex0:  texture_2d<f32>;

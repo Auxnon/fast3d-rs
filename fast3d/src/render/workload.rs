@@ -500,14 +500,34 @@ impl SceneRenderer {
                 .iter()
                 .map(|cache| &cache.bind_group)
                 .collect();
+            // A target drawing only rectangles has no RSP output; bind a placeholder vertex.
+            let placeholder;
+            let test_vertices = match buffers.vertices.get(&target.logical_extent) {
+                Some(vertices) => vertices,
+                None => {
+                    placeholder = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("workload-no-vertices"),
+                        size: std::mem::size_of::<super::OutVertex>() as u64,
+                        usage: wgpu::BufferUsages::STORAGE,
+                        mapped_at_creation: false,
+                    });
+                    &placeholder
+                }
+            };
             let depth_bg = depth.map(|depth| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("workload-depth"),
                     layout: self.textured_fb.depth_bind_group_layout(),
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&depth.attach),
-                    }],
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&depth.attach),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: test_vertices.as_entire_binding(),
+                        },
+                    ],
                 })
             });
             let mut start = 0;
